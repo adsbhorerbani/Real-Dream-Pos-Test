@@ -5252,5 +5252,861 @@
   try { window.renderSalesReportView(); window.updateDashboard(); } catch (e) {}
 })();
 </script>
+<!-- ===== CAMERA FIX + ENGLISH MEMO PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, due patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<script id="camera-memo-patch-js">
+(function () {
+  'use strict';
+
+  const num = (v) => Number(v) || 0;
+
+  /* =========================================================
+     1) ক্যামেরা ফিক্স
+        - পারমিশন Blocked থাকলে ধাপে ধাপে করণীয় দেখায়
+        - "আবার চেষ্টা করুন" বাটন
+        - ব্যবহারকারী Allow করলে নিজে থেকেই ক্যামেরা চালু হয়
+        - ব্যাকআপ: ফোনের ক্যামেরা অ্যাপ দিয়ে ছবি তুলে বারকোড পড়া (পারমিশন লাগে না)
+  ========================================================= */
+  function camModalOpen() {
+    const m = document.getElementById('camera-scanner-modal');
+    return m && !m.classList.contains('hidden');
+  }
+
+  function statusEl() { return document.getElementById('cam-status'); }
+
+  function setStatus(msg, isErr) {
+    const el = statusEl();
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = isErr ? '#be123c' : '#475569';
+    el.style.display = msg ? 'block' : 'none';
+  }
+
+  function removeHelper() {
+    const h = document.getElementById('cam-helper');
+    if (h) h.remove();
+  }
+
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = () => rej(new Error('load failed'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function smallFile(file, max) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * sc);
+      c.height = Math.round(bmp.height * sc);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      return new File([blob], 'scan.jpg', { type: 'image/jpeg' });
+    } catch (e) {
+      return file;
+    }
+  }
+
+  async function decodePhoto(file) {
+    if (!file) return;
+    setStatus('ছবি থেকে বারকোড পড়া হচ্ছে...', false);
+    let text = null;
+
+    try {
+      if ('BarcodeDetector' in window) {
+        const bd = new BarcodeDetector();
+        const bmp = await createImageBitmap(file);
+        const r = await bd.detect(bmp);
+        if (r && r.length) text = r[0].rawValue;
+      }
+    } catch (e) { /* ignore */ }
+
+    if (!text) {
+      try {
+        if (typeof Html5Qrcode === 'undefined') {
+          await loadScript('https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js');
+        }
+        let holder = document.getElementById('cam-file-holder');
+        if (!holder) {
+          holder = document.createElement('div');
+          holder.id = 'cam-file-holder';
+          holder.style.display = 'none';
+          document.body.appendChild(holder);
+        }
+        const inst = new Html5Qrcode('cam-file-holder', { verbose: false });
+        const f = await smallFile(file, 1400);
+        text = await inst.scanFile(f, false);
+        try { inst.clear(); } catch (e) { /* ignore */ }
+      } catch (e) { /* ignore */ }
+    }
+
+    if (text) {
+      window.closeCameraScannerModal();
+      processScannedBarcode(text);
+    } else {
+      setStatus('বারকোড পড়া যায়নি। বারকোডটি কাছ থেকে, পরিষ্কার ও সোজা করে আবার ছবি তুলুন।', true);
+    }
+  }
+
+  function showHelper(msg) {
+    removeHelper();
+    const st = statusEl();
+    if (!st) return;
+    const isPerm = /অনুমতি/.test(msg);
+
+    const wrap = document.createElement('div');
+    wrap.id = 'cam-helper';
+    wrap.style.cssText = 'padding:0 4px 8px;font-size:12px;line-height:1.55;color:#334155;';
+    wrap.innerHTML =
+      (isPerm ?
+        `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:8px 10px;margin-bottom:8px;">
+          <b>📱 ক্যামেরা চালু করার নিয়ম (Chrome):</b><br>
+          ১) ঠিকানা বারের বাম পাশের আইকনে (🔒 বা ⚙) চাপুন → <b>Permissions / অনুমতি</b> → <b>Camera</b> → <b>Allow</b>।<br>
+          ২) না পেলে: Chrome-এর ⋮ মেনু → <b>Settings</b> → <b>Site settings</b> → <b>Camera</b> → এই সাইটটি <b>Allow</b> করুন (Blocked তালিকায় থাকলে সরিয়ে দিন)।<br>
+          ৩) তাতেও না হলে: ফোনের <b>Settings → Apps → Chrome → Permissions → Camera → Allow</b>।<br>
+          Allow করার পর নিচের <b>"আবার চেষ্টা করুন"</b> চাপুন (প্রয়োজনে পেজ রিলোড দিন)।
+        </div>` : '') +
+      `<div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <button type="button" id="cam-retry-btn" style="padding:8px 12px;background:#15803d;color:#fff;border-radius:10px;font-weight:700;">🔄 আবার চেষ্টা করুন</button>
+        <button type="button" id="cam-photo-btn" style="padding:8px 12px;background:#f59e0b;color:#fff;border-radius:10px;font-weight:700;">📷 ক্যামেরা অ্যাপ দিয়ে ছবি তুলুন</button>
+        <button type="button" id="cam-gallery-btn" style="padding:8px 12px;background:#e2e8f0;color:#334155;border-radius:10px;font-weight:700;">🖼 গ্যালারি থেকে</button>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px;">💡 "ক্যামেরা অ্যাপ দিয়ে ছবি তুলুন" বাটনে ক্যামেরা পারমিশন ছাড়াই বারকোড স্ক্যান করা যায়।</div>
+      <input type="file" id="cam-file-capture" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="cam-file-gallery" accept="image/*" style="display:none">`;
+    st.insertAdjacentElement('afterend', wrap);
+
+    const cap = wrap.querySelector('#cam-file-capture');
+    const gal = wrap.querySelector('#cam-file-gallery');
+    wrap.querySelector('#cam-retry-btn').onclick = () => window.startCameraScanner();
+    wrap.querySelector('#cam-photo-btn').onclick = () => cap.click();
+    wrap.querySelector('#cam-gallery-btn').onclick = () => gal.click();
+    [cap, gal].forEach(inp => inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0];
+      inp.value = '';
+      decodePhoto(f);
+    }));
+  }
+
+  const origStart = window.startCameraScanner;
+  window.startCameraScanner = async function () {
+    removeHelper();
+    await origStart();
+    const st = statusEl();
+    if (st && st.style.display !== 'none') {
+      const t = (st.textContent || '').trim();
+      if (t && !/চালু হচ্ছে/.test(t)) showHelper(t);
+    }
+  };
+
+  const origClose = window.closeCameraScannerModal;
+  window.closeCameraScannerModal = function () {
+    removeHelper();
+    origClose();
+  };
+
+  // ব্যবহারকারী সেটিংসে গিয়ে Allow করলে নিজে থেকেই ক্যামেরা চালু হবে
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'camera' }).then(ps => {
+        ps.onchange = () => {
+          if (ps.state === 'granted' && camModalOpen()) window.startCameraScanner();
+        };
+      }).catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
+
+  /* =========================================================
+     2) ইংরেজি মেমো
+        - ৮০/৫৮ মিমি লেখা বাদ
+        - সবার শেষে (Development By Boost Lab)
+  ========================================================= */
+  const money = (n) => Math.round(num(n)).toLocaleString('en-US');
+  const hasBn = (t) => /[\u0980-\u09FF]/.test(String(t || ''));
+  const enPay = (pm) => { const m = String(pm || '').match(/\(([^)]+)\)/); return m ? m[1] : String(pm || ''); };
+  const enName = (n) => /সাধারণ ক্রেতা|Walk-in/.test(String(n || '')) ? 'Walk-in Customer' : String(n || '');
+  const enPhone = (p) => /প্রযোজ্য নয়/.test(String(p || '')) ? 'N/A' : String(p || '');
+  const dt = (d) => new Date(d).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  const POLICY_EN = 'Exchange within 7 days with cash memo in unused condition. Cash is non-refundable.';
+  const policyText = () => { const p = shopConfig.policy; return (!p || hasBn(p)) ? POLICY_EN : p; };
+  const CREDIT = '<p style="text-align:center;font-size:9px;font-weight:600;margin:6px 0 0;color:#000;">(Development By Boost Lab)</p>';
+
+  function dueNow(s) {
+    const g = Math.max(0, num(s.grandTotal) - num(s.returnedValue));
+    const paid = (s.paidAmount != null && !isNaN(Number(s.paidAmount))) ? Number(s.paidAmount) : num(s.grandTotal);
+    const pn = Math.min(Math.max(paid, 0), num(s.grandTotal));
+    const col = Math.min(Math.max(0, pn - num(s.returnedAmount)), g);
+    return Math.max(0, Math.round(g - col));
+  }
+
+  function extraHTML(s) {
+    let h = '';
+    if (s.duePayments && s.duePayments.length) {
+      h += `<div style="margin-top:6px;padding-top:4px;border-top:1px dashed #000;font-size:10px;line-height:1.4;color:#000;">
+        <div style="font-weight:800;">Due Payments Received</div>` +
+        s.duePayments.map(p => `<div style="display:flex;justify-content:space-between;gap:6px;"><span>${esc(dt(p.date))} • ${esc(enPay(p.method))}</span><span>৳${money(p.amount)}</span></div>`).join('') +
+        `</div>`;
+    }
+    if (s.returns && s.returns.length) {
+      const g = num(s.grandTotal), rv = num(s.returnedValue);
+      h += `<div style="margin-top:6px;padding-top:4px;border-top:1px dashed #000;font-size:10px;line-height:1.4;color:#000;">
+        <div style="font-weight:800;margin-bottom:2px;">Return / Refund</div>` +
+        s.returns.map(r => `<div style="margin-bottom:3px;">${esc(r.id)} • ${esc(dt(r.date))}<br>` +
+          r.items.map(i => `${esc(i.name)} [${esc(i.size)}] ×${i.qty}`).join(', ') +
+          `<br>Value -৳${money(r.value)} • Refund ৳${money(r.refund)}${r.reason ? ' • ' + esc(r.reason) : ''}</div>`).join('') +
+        `<div style="font-weight:800;border-top:1px solid #000;padding-top:2px;">Net Bill: ৳${money(g - rv)}</div></div>`;
+    }
+    return h;
+  }
+
+  window.renderReceiptTemplate = function () {
+    if (!currentViewingSale) return;
+    const s = currentViewingSale;
+    const container = document.getElementById('print-area');
+    if (!container) return;
+    const date = dt(s.date);
+    const paid = (s.paidAmount != null) ? s.paidAmount : s.grandTotal;
+    const due = dueNow(s);
+    const extra = extraHTML(s);
+    const pay = enPay(s.paymentMethod);
+    const cust = enName(s.customerName);
+    const phone = enPhone(s.customerPhone);
+
+    if (activePrinterFormat === '80mm') {
+      container.innerHTML = `
+        <div class="text-slate-900 font-mono text-xs leading-tight">
+          <div class="text-center pb-2 border-b border-dashed border-slate-400">
+            <h2 class="text-base font-bold font-sans text-slate-900">${esc(shopConfig.name)}</h2>
+            <p class="text-[11px] text-slate-600">${esc(shopConfig.tagline)}</p>
+            <p class="text-[10px] text-slate-500 mt-0.5">${esc(shopConfig.address)}</p>
+            <p class="text-[10px] text-slate-600 font-bold">Phone: ${esc(shopConfig.phone)}</p>
+          </div>
+
+          <div class="py-2 border-b border-dashed border-slate-400 text-[11px] space-y-0.5">
+            <div class="flex justify-between"><span>Memo No:</span><span class="font-bold">${esc(s.id)}</span></div>
+            <div class="flex justify-between"><span>Date:</span><span>${esc(date)}</span></div>
+            <div class="flex justify-between"><span>Customer:</span><span class="font-bold">${esc(cust)}</span></div>
+            <div class="flex justify-between"><span>Mobile:</span><span>${esc(phone)}</span></div>
+            <div class="flex justify-between"><span>Payment:</span><span class="font-bold">${esc(pay)}</span></div>
+          </div>
+
+          <table class="w-full text-left text-[11px] my-2 border-b border-dashed border-slate-400">
+            <thead>
+              <tr class="border-b border-slate-300">
+                <th class="py-1">Item (Size)</th>
+                <th class="py-1 text-center">Qty</th>
+                <th class="py-1 text-right">Rate</th>
+                <th class="py-1 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-dotted divide-slate-200">
+              ${s.items.map(item => `
+                <tr>
+                  <td class="py-1 pr-1">
+                    <div class="font-bold">${esc(item.name)}</div>
+                    <div class="text-[9px] text-slate-600 font-sans font-bold">Size: ${esc(item.size)} ${item.color ? ' • ' + esc(item.color) : ''}</div>
+                  </td>
+                  <td class="py-1 text-center font-bold">${item.qty}</td>
+                  <td class="py-1 text-right">৳${item.price}</td>
+                  <td class="py-1 text-right font-bold">৳${money(item.price * item.qty)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="space-y-1 text-[11px] pb-2 border-b border-dashed border-slate-400">
+            <div class="flex justify-between"><span>Subtotal:</span><span>৳ ${money(s.subtotal)}</span></div>
+            ${s.discount > 0 ? `<div class="flex justify-between"><span>Discount:</span><span>- ৳ ${money(s.discount)}</span></div>` : ''}
+            ${s.tax > 0 ? `<div class="flex justify-between"><span>VAT/Tax:</span><span>+ ৳ ${money(s.tax)}</span></div>` : ''}
+            <div class="flex justify-between text-sm font-bold pt-1 border-t border-slate-300">
+              <span>Grand Total:</span><span>৳ ${money(s.grandTotal)}</span>
+            </div>
+            <div class="flex justify-between text-slate-700"><span>Paid:</span><span>৳ ${money(paid)}</span></div>
+            ${s.changeAmount > 0 ? `<div class="flex justify-between text-slate-700"><span>Change:</span><span class="font-bold">৳ ${money(s.changeAmount)}</span></div>` : ''}
+            ${due > 0 ? `<div class="flex justify-between text-slate-900 font-bold"><span>Due:</span><span>৳ ${money(due)}</span></div>` : ''}
+          </div>
+
+          ${extra}
+
+          <div class="text-center pt-2 space-y-1">
+            <svg id="memo-barcode-svg" class="mx-auto"></svg>
+            <p class="text-[9px] text-slate-600 font-sans leading-tight pt-1">${esc(policyText())}</p>
+            <p class="text-[10px] font-bold font-sans pt-1">Thank you! Please visit again.</p>
+            ${CREDIT}
+          </div>
+        </div>
+      `;
+    } else if (activePrinterFormat === '58mm') {
+      container.innerHTML = `
+        <div class="text-slate-900 font-mono text-[10px] leading-tight px-1">
+          <div class="text-center pb-1.5 border-b border-dashed border-slate-400">
+            <h2 class="text-sm font-bold font-sans">${esc(shopConfig.name)}</h2>
+            <p class="text-[9px] text-slate-500">${esc(shopConfig.phone)}</p>
+          </div>
+
+          <div class="py-1 text-[9px] border-b border-dashed border-slate-300 space-y-0.5">
+            <div>No: <b>${esc(s.id)}</b></div>
+            <div>Date: ${esc(date)}</div>
+            <div>Customer: ${esc(cust)}</div>
+            <div>Payment: ${esc(pay)}</div>
+          </div>
+
+          <table class="w-full text-left text-[9px] my-1">
+            <thead>
+              <tr class="border-b border-slate-300 font-bold">
+                <th class="py-0.5">Item (Size)</th>
+                <th class="text-center py-0.5">Qty</th>
+                <th class="text-right py-0.5">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-dotted divide-slate-200">
+              ${s.items.map(item => `
+                <tr>
+                  <td class="py-1 pr-1 font-bold">
+                    ${esc(item.name)}
+                    <span class="block text-[8px] font-bold text-slate-600 font-sans">[${esc(item.size)}]</span>
+                  </td>
+                  <td class="text-center py-1 font-bold">${item.qty}</td>
+                  <td class="text-right py-1 font-bold">৳${money(item.price * item.qty)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="border-t border-dashed border-slate-400 pt-1 space-y-0.5 text-[9px]">
+            <div class="flex justify-between"><span>Subtotal:</span> <span>৳${money(s.subtotal)}</span></div>
+            ${s.discount > 0 ? `<div class="flex justify-between"><span>Discount:</span> <span>-৳${money(s.discount)}</span></div>` : ''}
+            ${s.tax > 0 ? `<div class="flex justify-between"><span>VAT:</span> <span>+৳${money(s.tax)}</span></div>` : ''}
+            <div class="flex justify-between font-bold text-[11px] pt-0.5 border-t border-slate-300">
+              <span>Total:</span> <span>৳${money(s.grandTotal)}</span>
+            </div>
+            <div class="flex justify-between"><span>Paid:</span> <span>৳${money(paid)}</span></div>
+            ${s.changeAmount > 0 ? `<div class="flex justify-between"><span>Change:</span> <span>৳${money(s.changeAmount)}</span></div>` : ''}
+            ${due > 0 ? `<div class="flex justify-between font-bold"><span>Due:</span> <span>৳${money(due)}</span></div>` : ''}
+          </div>
+
+          ${extra}
+
+          <div class="text-center pt-2 text-[8px] text-slate-500 font-sans space-y-0.5">
+            <svg id="memo-barcode-svg" class="mx-auto"></svg>
+            <p>${esc(policyText())}</p>
+            <p class="font-bold text-slate-700">Thank you!</p>
+            ${CREDIT}
+          </div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="text-slate-900 font-sans text-xs p-4 sm:p-6 bg-white min-h-[90%] flex flex-col justify-between">
+          <div>
+            <div class="flex items-start justify-between border-b-2 border-slate-800 pb-4">
+              <div>
+                <h1 class="text-2xl font-bold text-slate-900">${esc(shopConfig.name)}</h1>
+                <p class="text-slate-600 font-medium">${esc(shopConfig.tagline)}</p>
+                <p class="text-xs text-slate-500 mt-1 max-w-sm">${esc(shopConfig.address)}</p>
+                <p class="text-xs text-slate-700 font-semibold mt-0.5">Mobile: ${esc(shopConfig.phone)}</p>
+              </div>
+              <div class="text-right">
+                <span class="inline-block px-4 py-1.5 bg-slate-900 text-white font-bold rounded text-xs uppercase tracking-wider mb-2">Cash Memo / Invoice</span>
+                <p class="text-xs font-mono font-bold text-slate-800">Invoice No: ${esc(s.id)}</p>
+                <p class="text-xs text-slate-500 mt-0.5">Date: ${esc(date)}</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 my-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <h4 class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer Details:</h4>
+                <p class="text-sm font-bold text-slate-900">${esc(cust)}</p>
+                <p class="text-xs text-slate-600">Phone: ${esc(phone)}</p>
+              </div>
+              <div class="text-right">
+                <h4 class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Payment Details:</h4>
+                <p class="text-xs text-slate-700">Method: <span class="font-bold text-slate-900">${esc(pay)}</span></p>
+                <p class="text-xs text-slate-700">Paid: <span class="font-mono font-bold">৳${money(paid)}</span></p>
+                ${s.changeAmount > 0 ? `<p class="text-xs text-slate-600">Change: <span class="font-mono font-bold">৳${money(s.changeAmount)}</span></p>` : ''}
+                ${due > 0 ? `<p class="text-xs text-slate-900 font-bold">Due: <span class="font-mono">৳${money(due)}</span></p>` : ''}
+              </div>
+            </div>
+
+            <table class="w-full text-left border-collapse border border-slate-200 my-4 text-xs">
+              <thead class="bg-slate-100 text-slate-700 font-bold">
+                <tr>
+                  <th class="border border-slate-200 p-2 text-center w-12">SL</th>
+                  <th class="border border-slate-200 p-2">Item Description &amp; Size</th>
+                  <th class="border border-slate-200 p-2 text-center">Code / SKU</th>
+                  <th class="border border-slate-200 p-2 text-center">Qty</th>
+                  <th class="border border-slate-200 p-2 text-right">Unit Price</th>
+                  <th class="border border-slate-200 p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200">
+                ${s.items.map((item, idx) => `
+                  <tr>
+                    <td class="border border-slate-200 p-2 text-center font-mono">${idx + 1}</td>
+                    <td class="border border-slate-200 p-2">
+                      <span class="font-bold text-slate-900">${esc(item.name)}</span>
+                      <span class="text-slate-700 font-semibold block text-[11px]">Size: ${esc(item.size)} ${item.color ? ' | Color: ' + esc(item.color) : ''}</span>
+                    </td>
+                    <td class="border border-slate-200 p-2 text-center font-mono text-[11px] text-slate-500">${esc(item.sku)}</td>
+                    <td class="border border-slate-200 p-2 text-center font-bold font-mono">${item.qty}</td>
+                    <td class="border border-slate-200 p-2 text-right font-mono">৳${item.price}</td>
+                    <td class="border border-slate-200 p-2 text-right font-bold font-mono">৳${money(item.price * item.qty)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            <div class="flex justify-end my-3">
+              <div class="w-72 space-y-1 text-xs">
+                <div class="flex justify-between text-slate-600"><span>Subtotal:</span><span class="font-mono font-bold">৳ ${money(s.subtotal)}</span></div>
+                ${s.discount > 0 ? `<div class="flex justify-between text-slate-600"><span>Discount:</span><span class="font-mono font-bold text-rose-600">- ৳ ${money(s.discount)}</span></div>` : ''}
+                ${s.tax > 0 ? `<div class="flex justify-between text-slate-600"><span>VAT/Tax:</span><span class="font-mono font-bold">+ ৳ ${money(s.tax)}</span></div>` : ''}
+                <div class="flex justify-between text-sm font-bold text-slate-900 border-t-2 border-slate-800 pt-1">
+                  <span>Grand Total:</span><span class="font-mono text-base text-brand-700">৳ ${money(s.grandTotal)}</span>
+                </div>
+              </div>
+            </div>
+
+            ${extra}
+          </div>
+
+          <div class="pt-8">
+            <div class="grid grid-cols-2 gap-8 items-end mb-4">
+              <div>
+                <svg id="memo-barcode-svg" class="w-48"></svg>
+                <p class="text-[10px] text-slate-500 mt-2"><b>Terms:</b> ${esc(policyText())}</p>
+              </div>
+              <div class="flex justify-end gap-8 text-center">
+                <div><div class="border-t border-slate-400 w-32 pt-1 text-[11px] text-slate-600">Customer Signature</div></div>
+                <div><div class="border-t border-slate-400 w-32 pt-1 text-[11px] font-bold text-slate-800">Authorized Signature</div></div>
+              </div>
+            </div>
+            <p class="text-center text-[11px] font-bold text-slate-700 mb-1">Thank you! Please visit again.</p>
+            ${CREDIT}
+          </div>
+        </div>
+      `;
+    }
+
+    try {
+      JsBarcode("#memo-barcode-svg", s.id, {
+        format: "CODE128",
+        width: activePrinterFormat === '58mm' ? 1.2 : 1.6,
+        height: activePrinterFormat === '58mm' ? 24 : 32,
+        displayValue: true,
+        fontSize: 10,
+        margin: 0
+      });
+    } catch (err) { /* ignore */ }
+  };
+
+  // খোলা থাকা মেমো থাকলে সাথে সাথে নতুন রূপে দেখাও
+  try { if (currentViewingSale) window.renderReceiptTemplate(); } catch (e) { /* ignore */ }
+})();
+</script>
+<!-- ===== MEMO SIZE + USER/PERMISSION PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, camera-memo patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+
+<!-- ---------- ১) মেমো ছোট করা (সংখ্যা বদলে ইচ্ছামতো ছোট/বড় করতে পারবেন) ---------- -->
+<style id="memo-size-css">
+  /* স্ক্রিন প্রিভিউ */
+  #print-area.paper-80mm > div { zoom: 0.85; }
+  #print-area.paper-58mm > div { zoom: 0.85; }
+  #print-area.paper-a4   > div { zoom: 0.78; }
+  #print-area.paper-a5   > div { zoom: 0.80; }
+  /* প্রিন্ট */
+  #isolated-print-mount[data-fmt="80mm"] > div { zoom: 0.85; }
+  #isolated-print-mount[data-fmt="58mm"] > div { zoom: 0.85; }
+  #isolated-print-mount[data-fmt="a4"]   > div { zoom: 0.78; }
+  #isolated-print-mount[data-fmt="a5"]   > div { zoom: 0.80; }
+
+  /* পারমিশন না থাকলে বাটন লুকানো */
+  body.deny-inventory_edit button[onclick^="openAddProductModal"],
+  body.deny-inventory_edit #inventory-tbody button[onclick^="editProduct"],
+  body.deny-inventory_edit #inventory-tbody button[onclick^="deleteProduct"],
+  body.deny-tags #inventory-tbody button[onclick^="goToTag"],
+  body.deny-settings button[onclick="openSettingsModal()"],
+  body.deny-returns #ret-side-btn, body.deny-returns #ret-mob-btn,
+  body.deny-returns #ret-receipt-btn, body.deny-returns #ret-report-btn,
+  body.deny-due #due-side-btn, body.deny-due #due-mob-btn, body.deny-due #due-report-btn
+  { display: none !important; }
+</style>
+
+<script id="memo-size-js">
+(function () {
+  const orig = window.triggerInvoicePrint;
+  window.triggerInvoicePrint = function () {
+    const m = document.getElementById('isolated-print-mount');
+    if (m) m.dataset.fmt = activePrinterFormat;
+    return orig.apply(this, arguments);
+  };
+})();
+</script>
+
+<!-- ---------- ২) ইউজার ম্যানেজমেন্ট ও পারমিশন ---------- -->
+<script type="module" id="users-permission-js">
+import { getApp, getApps, initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+const app = getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const PERMS = [
+  ['pos', 'POS বিক্রয়'],
+  ['discount', 'ছাড় দেওয়া'],
+  ['inventory', 'স্টক দেখা'],
+  ['inventory_edit', 'পণ্য যোগ/এডিট/ডিলিট'],
+  ['tags', 'প্রাইস ট্যাগ'],
+  ['reports', 'সেলস রিপোর্ট'],
+  ['dashboard', 'ড্যাশবোর্ড (আয়/লাভ)'],
+  ['returns', 'রিটার্ন'],
+  ['due', 'বাকি খাতা'],
+  ['settings', 'সেটিংস']
+];
+const PRESETS = {
+  cashier: ['pos', 'inventory', 'tags', 'returns'],
+  manager: ['pos', 'discount', 'inventory', 'inventory_edit', 'tags', 'reports', 'dashboard', 'returns', 'due'],
+  all: PERMS.map(p => p[0]),
+  none: []
+};
+const TABS = { pos: 'pos', dashboard: 'dashboard', inventory: 'inventory', tags: 'tags', reports: 'reports' };
+const TAB_ORDER = ['pos', 'dashboard', 'inventory', 'tags', 'reports'];
+
+let role = null, perms = {};
+let unsubSelf = null, unsubUsers = null;
+let usersCache = [], editingUid = null;
+
+window.can = (k) => role === 'owner' || (role === 'staff' && !!perms[k]);
+const toast = (m, t) => window.showToast && window.showToast(m, t || 'warning');
+
+/* ---------- লোডিং / ব্লক ওভারলে ---------- */
+function overlay(show, html) {
+  let o = document.getElementById('perm-overlay');
+  if (!o) {
+    o = document.createElement('div');
+    o.id = 'perm-overlay';
+    o.className = 'fixed inset-0 z-[95] bg-slate-100 flex items-center justify-center p-4 text-center no-print';
+    document.body.appendChild(o);
+  }
+  o.style.display = show ? 'flex' : 'none';
+  if (show) o.innerHTML = html || '<div class="flex flex-col items-center gap-3 text-slate-500 text-sm"><div class="w-8 h-8 rounded-full border-4 border-slate-200 border-t-green-600 animate-spin"></div>অনুমতি যাচাই হচ্ছে...</div>';
+}
+
+/* ---------- পারমিশন প্রয়োগ ---------- */
+function applyPerms() {
+  PERMS.forEach(([k]) => document.body.classList.toggle('deny-' + k, !window.can(k)));
+  Object.keys(TABS).forEach(t => {
+    const ok = window.can(TABS[t]);
+    const d = document.getElementById('tab-' + t);
+    if (d) d.style.display = ok ? '' : 'none';
+    document.querySelectorAll(`.mobile-tab[onclick*="'${t}'"]`).forEach(b => b.style.display = ok ? '' : 'none');
+  });
+  const noDisc = !window.can('discount');
+  ['pos-discount', 'pos-discount-mode'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) { e.disabled = noDisc; if (noDisc && id === 'pos-discount') e.value = '0'; }
+  });
+  if (noDisc && window.updateCartTotals) window.updateCartTotals();
+  document.querySelectorAll('.users-btn').forEach(b => b.style.display = role === 'owner' ? '' : 'none');
+  hideReturnRowButtons();
+}
+
+function hideReturnRowButtons() {
+  const off = !window.can('returns');
+  document.querySelectorAll('#sales-tbody button').forEach(b => {
+    if (b.textContent.includes('↩')) b.style.display = off ? 'none' : '';
+  });
+}
+
+function setRole(r, p) {
+  role = r; perms = p || {};
+  applyPerms();
+  const allowed = TAB_ORDER.filter(t => window.can(TABS[t]));
+  if (!allowed.length) {
+    overlay(true, `<div class="bg-white rounded-2xl shadow p-6 max-w-sm"><p class="font-bold text-slate-800 mb-2">কোনো পারমিশন দেওয়া হয়নি</p><p class="text-sm text-slate-500 mb-4">মালিকের সাথে যোগাযোগ করুন।</p><button onclick="handleLogout()" class="px-4 py-2 bg-rose-600 text-white rounded-xl font-bold">লগআউট</button></div>`);
+    return;
+  }
+  overlay(false);
+  const cur = TAB_ORDER.find(t => { const v = document.getElementById('view-' + t); return v && !v.classList.contains('hidden'); });
+  if (!cur || !window.can(TABS[cur])) window.switchTab(allowed[0]);
+}
+
+async function deny(msg) {
+  overlay(false);
+  role = null; perms = {};
+  try { await signOut(auth); } catch (e) {}
+  if (window.onAuthChanged) window.onAuthChanged(null, msg);
+}
+
+/* ---------- লগইনের পর ভূমিকা নির্ধারণ ---------- */
+onAuthStateChanged(auth, async (user) => {
+  if (unsubSelf) { unsubSelf(); unsubSelf = null; }
+  if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+  closeUsersModal();
+  role = null; perms = {};
+  if (!user) { overlay(false); return; }
+  overlay(true);
+  try {
+    const ownerRef = doc(db, 'clothpos_settings', 'owner');
+    const o = await getDoc(ownerRef);
+    if (!o.exists()) {
+      // প্রথম যিনি লগইন করবেন তিনিই মালিক
+      await setDoc(ownerRef, { uid: user.uid, email: user.email, createdAt: new Date().toISOString() });
+      setRole('owner');
+      return;
+    }
+    if (o.data().uid === user.uid) { setRole('owner'); return; }
+    unsubSelf = onSnapshot(doc(db, 'clothpos_users', user.uid), (snap) => {
+      const d = snap.exists() ? snap.data() : null;
+      if (!d || d.removed || d.active === false) {
+        deny(d ? 'আপনার অ্যাকাউন্টটি বন্ধ করা হয়েছে। মালিকের সাথে যোগাযোগ করুন।' : 'আপনাকে এই সিস্টেমে যুক্ত করা হয়নি। মালিকের সাথে যোগাযোগ করুন।');
+        return;
+      }
+      setRole('staff', d.perms || {});
+    }, () => deny('পারমিশন যাচাই করা যায়নি। Firestore Rules-এ clothpos_users অনুমোদন আছে কিনা দেখুন।'));
+  } catch (e) {
+    deny('পারমিশন যাচাই করা যায়নি। Firestore Rules-এ clothpos_users ও clothpos_settings অনুমোদন আছে কিনা দেখুন।');
+  }
+});
+
+/* ---------- ফাংশনে পারমিশন গার্ড ---------- */
+function guard(name, perm) {
+  const f = window[name];
+  if (typeof f !== 'function') return;
+  window[name] = function () {
+    if (!window.can(perm)) { toast('এই কাজের অনুমতি আপনার নেই।'); return; }
+    return f.apply(this, arguments);
+  };
+}
+['openAddProductModal', 'editProduct', 'deleteProduct'].forEach(n => guard(n, 'inventory_edit'));
+guard('openSettingsModal', 'settings');
+guard('openReturnModal', 'returns');
+guard('openDueModal', 'due');
+guard('processCheckout', 'pos');
+['downloadSalesReportPDF', 'printSalesReportDirect', 'exportSalesCSV'].forEach(n => guard(n, 'reports'));
+
+const origSwitch = window.switchTab;
+window.switchTab = function (t) {
+  if (role && TABS[t] && !window.can(TABS[t])) { toast('এই পেজ দেখার অনুমতি আপনার নেই।'); return; }
+  return origSwitch.apply(this, arguments);
+};
+
+const origRep = window.renderSalesReportView;
+window.renderSalesReportView = function () { origRep.apply(this, arguments); hideReturnRowButtons(); };
+
+/* ---------- ইউজার ম্যানেজমেন্ট UI (শুধু মালিক) ---------- */
+function permBoxes(cls, selected) {
+  return PERMS.map(([k, l]) => `<label class="flex items-center gap-1.5 py-0.5"><input type="checkbox" class="${cls}" value="${k}" ${selected.includes(k) ? 'checked' : ''}> ${l}</label>`).join('');
+}
+const pickedPerms = (cls, root) => {
+  const o = {};
+  (root || document).querySelectorAll('.' + cls).forEach(c => { o[c.value] = c.checked; });
+  return o;
+};
+
+function usersModal() {
+  let m = document.getElementById('users-modal');
+  if (m) return m;
+  m = document.createElement('div');
+  m.id = 'users-modal';
+  m.className = 'fixed inset-0 z-[70] bg-slate-900/70 hidden items-center justify-center p-3 overflow-y-auto no-print';
+  m.innerHTML = '<div id="users-modal-box" class="bg-white rounded-2xl max-w-2xl w-full p-4 sm:p-5 shadow-2xl text-xs" style="max-height:94vh;overflow-y:auto"></div>';
+  document.body.appendChild(m);
+  return m;
+}
+function closeUsersModal() {
+  const m = document.getElementById('users-modal');
+  if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+  if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+}
+window.closeUsersModal = closeUsersModal;
+
+window.openUsersModal = function () {
+  if (role !== 'owner') return;
+  const m = usersModal();
+  m.classList.remove('hidden'); m.classList.add('flex');
+  document.getElementById('users-modal-box').innerHTML = `
+    <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+      <h3 class="text-base font-bold text-slate-900">👥 ইউজার ম্যানেজমেন্ট</h3>
+      <button onclick="closeUsersModal()" class="text-slate-400 hover:text-slate-600 text-lg px-2">✕</button>
+    </div>
+    <div class="mt-3 p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+      <div class="font-bold text-emerald-900">নতুন ইউজার যোগ করুন</div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <input id="nu-name" type="text" placeholder="নাম" class="px-3 py-2 border border-slate-300 rounded-lg">
+        <input id="nu-email" type="email" placeholder="ইমেইল (লগইন আইডি)" class="px-3 py-2 border border-slate-300 rounded-lg">
+        <input id="nu-pass" type="text" placeholder="পাসওয়ার্ড (কমপক্ষে ৬)" class="px-3 py-2 border border-slate-300 rounded-lg">
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        <span class="font-semibold text-slate-600 self-center">দ্রুত বাছাই:</span>
+        <button type="button" onclick="setPermPreset('nu-perm','cashier')" class="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold">ক্যাশিয়ার</button>
+        <button type="button" onclick="setPermPreset('nu-perm','manager')" class="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold">ম্যানেজার</button>
+        <button type="button" onclick="setPermPreset('nu-perm','all')" class="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold">সব</button>
+        <button type="button" onclick="setPermPreset('nu-perm','none')" class="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold">কিছুই না</button>
+      </div>
+      <div id="nu-perm-box" class="grid grid-cols-2 gap-x-3 text-slate-700">${permBoxes('nu-perm', PRESETS.cashier)}</div>
+      <button id="nu-btn" type="button" onclick="addStaffUser()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold">ইউজার তৈরি করুন</button>
+    </div>
+    <div id="users-list" class="mt-3 space-y-2"></div>`;
+  if (unsubUsers) unsubUsers();
+  unsubUsers = onSnapshot(collection(db, 'clothpos_users'), (snap) => {
+    usersCache = snap.docs.map(d => d.data());
+    renderUsersList();
+  });
+};
+
+window.setPermPreset = function (cls, key) {
+  const set = PRESETS[key] || [];
+  document.querySelectorAll('.' + cls).forEach(c => { c.checked = set.includes(c.value); });
+};
+
+function chips(p) {
+  const on = PERMS.filter(([k]) => p && p[k]).map(([, l]) => `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">${l}</span>`).join(' ');
+  return on || '<span class="text-rose-500 font-semibold">কোনো পারমিশন নেই</span>';
+}
+
+function renderUsersList() {
+  const el = document.getElementById('users-list');
+  if (!el) return;
+  const act = usersCache.filter(u => !u.removed).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const rem = usersCache.filter(u => u.removed);
+  const card = (u) => {
+    const editing = editingUid === u.uid;
+    return `<div class="p-3 border ${u.active === false ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200'} rounded-xl">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="font-bold text-slate-900 text-sm truncate">${esc(u.name)} ${u.active === false ? '<span class="text-[10px] text-amber-700 font-bold">(বন্ধ)</span>' : ''}</div>
+          <div class="text-[11px] text-slate-500 font-mono truncate">${esc(u.email)}</div>
+        </div>
+        <div class="flex flex-wrap justify-end gap-1 shrink-0">
+          <button onclick="editUserPerms('${u.uid}')" class="px-2 py-1 bg-blue-50 text-blue-700 rounded-lg font-bold">পারমিশন</button>
+          <button onclick="toggleUserActive('${u.uid}', ${u.active === false})" class="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg font-bold">${u.active === false ? 'চালু করুন' : 'বন্ধ করুন'}</button>
+          <button onclick="resetUserPw('${esc(u.email)}')" class="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold">পাসওয়ার্ড রিসেট</button>
+          <button onclick="removeUser('${u.uid}')" class="px-2 py-1 bg-rose-50 text-rose-700 rounded-lg font-bold">রিমুভ</button>
+        </div>
+      </div>
+      ${editing ? `<div class="mt-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <div id="ed-box" class="grid grid-cols-2 gap-x-3 text-slate-700">${permBoxes('ed-perm', PERMS.filter(([k]) => (u.perms || {})[k]).map(p => p[0]))}</div>
+          <div class="mt-2 flex gap-2 justify-end">
+            <button onclick="editUserPerms(null)" class="px-3 py-1.5 border border-slate-300 rounded-lg font-semibold">বাতিল</button>
+            <button onclick="saveUserPerms('${u.uid}')" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-bold">সেভ</button>
+          </div></div>`
+        : `<div class="mt-2 flex flex-wrap gap-1 text-[10px]">${chips(u.perms)}</div>`}
+    </div>`;
+  };
+  el.innerHTML =
+    `<div class="font-bold text-slate-800">ইউজার তালিকা (${act.length.toLocaleString('bn-BD')} জন)</div>` +
+    (act.length ? act.map(card).join('') : '<div class="py-6 text-center text-slate-400">এখনো কোনো ইউজার যোগ করা হয়নি</div>') +
+    (rem.length ? `<div class="pt-2 font-bold text-slate-500">রিমুভ করা ইউজার</div>` + rem.map(u => `
+      <div class="p-2.5 border border-slate-200 rounded-xl flex items-center justify-between gap-2 opacity-80">
+        <span class="min-w-0"><b>${esc(u.name)}</b> <span class="text-slate-500 font-mono">${esc(u.email)}</span></span>
+        <button onclick="restoreUser('${u.uid}')" class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg font-bold shrink-0">আবার চালু করুন</button>
+      </div>`).join('') : '');
+}
+
+async function patchUser(uid, data) {
+  await setDoc(doc(db, 'clothpos_users', uid), data, { merge: true });
+}
+
+window.editUserPerms = function (uid) { editingUid = uid; renderUsersList(); };
+
+window.saveUserPerms = async function (uid) {
+  try {
+    await patchUser(uid, { perms: pickedPerms('ed-perm', document.getElementById('ed-box')) });
+    editingUid = null;
+    toast('পারমিশন আপডেট হয়েছে ✅', 'success');
+  } catch (e) { toast('সেভ করা যায়নি: ' + (e.code || e.message), 'error'); }
+};
+
+window.toggleUserActive = async function (uid, makeActive) {
+  try {
+    await patchUser(uid, { active: !!makeActive });
+    toast(makeActive ? 'ইউজার চালু হয়েছে' : 'ইউজার বন্ধ করা হয়েছে', 'info');
+  } catch (e) { toast('ব্যর্থ: ' + (e.code || e.message), 'error'); }
+};
+
+window.removeUser = async function (uid) {
+  const u = usersCache.find(x => x.uid === uid);
+  if (!u || !confirm(`"${u.name}" (${u.email}) কে রিমুভ করবেন?\nসে আর লগইন করতে পারবে না।`)) return;
+  try {
+    await patchUser(uid, { removed: true, active: false });
+    toast('ইউজার রিমুভ হয়েছে', 'info');
+  } catch (e) { toast('ব্যর্থ: ' + (e.code || e.message), 'error'); }
+};
+
+window.restoreUser = async function (uid) {
+  try { await patchUser(uid, { removed: false, active: true }); toast('ইউজার আবার চালু হয়েছে ✅', 'success'); }
+  catch (e) { toast('ব্যর্থ: ' + (e.code || e.message), 'error'); }
+};
+
+window.resetUserPw = async function (email) {
+  try { await sendPasswordResetEmail(auth, email); toast('পাসওয়ার্ড রিসেট লিংক ' + email + ' এ পাঠানো হয়েছে', 'success'); }
+  catch (e) { toast('ব্যর্থ: ' + (e.code || e.message), 'error'); }
+};
+
+window.addStaffUser = async function () {
+  const name = document.getElementById('nu-name').value.trim();
+  const email = document.getElementById('nu-email').value.trim();
+  const pass = document.getElementById('nu-pass').value;
+  if (!name || !email || pass.length < 6) { toast('নাম, ইমেইল ও কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন!'); return; }
+  const p = pickedPerms('nu-perm', document.getElementById('nu-perm-box'));
+  const btn = document.getElementById('nu-btn');
+  btn.disabled = true; btn.textContent = 'তৈরি হচ্ছে...';
+  try {
+    // দ্বিতীয় অ্যাপ দিয়ে তৈরি করা হয়, তাই মালিক লগআউট হন না
+    const sec = getApps().find(a => a.name === 'sec') || initializeApp(app.options, 'sec');
+    const sa = getAuth(sec);
+    const c = await createUserWithEmailAndPassword(sa, email, pass);
+    const uid = c.user.uid;
+    await signOut(sa);
+    await setDoc(doc(db, 'clothpos_users', uid), {
+      uid, name, email, perms: p, active: true, removed: false,
+      createdAt: new Date().toISOString(), createdBy: (auth.currentUser && auth.currentUser.email) || ''
+    });
+    ['nu-name', 'nu-email', 'nu-pass'].forEach(id => document.getElementById(id).value = '');
+    toast(`✅ ${name} যোগ হয়েছে। এখন ${email} ও পাসওয়ার্ড দিয়ে লগইন করতে পারবে।`, 'success');
+  } catch (e) {
+    const map = {
+      'auth/email-already-in-use': 'এই ইমেইলে আগেই অ্যাকাউন্ট আছে। আগে রিমুভ করা হলে নিচের "রিমুভ করা ইউজার" থেকে আবার চালু করুন।',
+      'auth/weak-password': 'পাসওয়ার্ড দুর্বল, কমপক্ষে ৬ অক্ষর দিন।',
+      'auth/invalid-email': 'ইমেইল ঠিকানা সঠিক নয়।',
+      'auth/operation-not-allowed': 'Firebase Console-এ Email/Password লগইন চালু নেই।'
+    };
+    toast(map[e.code] || ('ব্যর্থ: ' + (e.code || e.message)), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'ইউজার তৈরি করুন';
+  }
+};
+
+/* ---------- বাটন বসানো (শুধু মালিকের জন্য দেখাবে) ---------- */
+function addUserButtons() {
+  const setBtn = document.querySelector('aside button[onclick="openSettingsModal()"]');
+  if (setBtn && !document.getElementById('users-side-btn')) {
+    const b = document.createElement('button');
+    b.id = 'users-side-btn'; b.type = 'button';
+    b.className = 'users-btn w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-xs transition active:scale-95';
+    b.style.display = 'none';
+    b.innerHTML = '<span>👥</span><span>ইউজার ও পারমিশন</span>';
+    b.onclick = () => window.openUsersModal();
+    setBtn.insertAdjacentElement('beforebegin', b);
+  }
+  const mob = document.querySelector('header button[onclick="handleLogout()"]');
+  if (mob && !document.getElementById('users-mob-btn')) {
+    const b = document.createElement('button');
+    b.id = 'users-mob-btn'; b.type = 'button'; b.title = 'ইউজার ও পারমিশন';
+    b.className = 'users-btn p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition active:scale-95 leading-none';
+    b.style.cssText = 'display:none;min-width:36px;height:36px;font-size:16px;';
+    b.textContent = '👥';
+    b.onclick = () => window.openUsersModal();
+    mob.insertAdjacentElement('beforebegin', b);
+  }
+}
+addUserButtons();
+</script>
 </body>
 </html>
