@@ -3922,5 +3922,1335 @@
       }, 2500);
     }
   </script>
+  <!-- ===== RESPONSIVE PATCH (ফোন / ট্যাবলেট / পিসি) =====
+     এই পুরো ব্লকটি আপনার ফাইলের শেষে </body> ট্যাগের ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<style id="responsive-patch-css">
+  html, body { max-width: 100%; overflow-x: hidden; }
+  main { -webkit-overflow-scrolling: touch; }
+
+  /* ---- POS: ১২৮০px এর নিচে (ফোন/ট্যাবলেট) দুই কলাম উপরে-নিচে সাজবে ---- */
+  @media (max-width: 1279px) {
+    #view-pos { height: auto !important; min-height: 0 !important; padding-bottom: 5rem; }
+    #view-pos > .grid { display: flex !important; flex-direction: column; overflow: visible !important; flex: none !important; }
+    #view-pos > .grid > div { height: auto !important; width: 100%; }
+    #view-pos > .grid > div:first-child { height: 78vh !important; height: 78dvh !important; }
+    #cart-items-container { min-height: 180px; max-height: 50vh; }
+  }
+
+  /* ---- ফোন ---- */
+  @media (max-width: 767px) {
+    /* iPhone এ ইনপুটে ট্যাপ করলে অটো-জুম বন্ধ */
+    input, select, textarea { font-size: 16px !important; }
+    /* কার্টের +/- বাটন আঙুলে চাপার মতো বড় */
+    #cart-items-container button { min-width: 30px; min-height: 30px; }
+    /* বড় টেবিল পাশে স্ক্রল হবে, ভেঙে যাবে না */
+    #view-reports table, #view-inventory table, #view-dashboard table { min-width: 640px; }
+    #view-reports #custom-two-col-tbody { font-size: 13px; }
+    #view-reports table:has(#custom-two-col-tbody) { min-width: 0; }
+    .mobile-tab { white-space: nowrap; border-radius: 10px; flex: 1; }
+    #view-tags, #view-inventory, #view-reports, #view-dashboard { padding: 0.75rem !important; }
+    /* A4/A5 মেমো প্রিভিউ ফোনে ছোট করে দেখাবে (প্রিন্টে প্রভাব নেই) */
+    .paper-a4, .paper-a5 { zoom: 0.42; }
+    .print-preview-container { padding: 0.5rem !important; }
+    #toast-container { left: 0.75rem !important; right: 0.75rem !important; bottom: 5rem !important; align-items: center; }
+  }
+
+  /* ---- মেমো প্রিভিউ: ছোট স্ক্রিনে স্ক্রল, বড় স্ক্রিনে মাঝখানে ---- */
+  .print-preview-container { overflow: auto !important; justify-content: flex-start !important; }
+  .print-preview-container > * { margin: 0 auto; flex-shrink: 0; }
+
+  /* ---- মোডাল: ছোট স্ক্রিনে কখনো কেটে যাবে না ---- */
+  #settings-modal > div, #pos-size-modal > div, #product-modal > div,
+  #receipt-modal > div, #camera-scanner-modal > div { max-height: 94vh; max-height: 94dvh; overflow-y: auto; }
+
+  /* ---- ফ্লোটিং কার্ট বাটন (শুধু ফোন/ট্যাবলেটে) ---- */
+  #mobile-cart-fab {
+    display: none; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40;
+    align-items: center; justify-content: space-between; gap: 8px;
+    background: #15803d; color: #fff; font-weight: 700; font-size: 14px;
+    padding: 12px 16px; border-radius: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.25);
+  }
+  #mobile-cart-fab.show { display: flex; }
+  @media (min-width: 1280px) { #mobile-cart-fab, #mobile-cart-fab.show { display: none !important; } }
+  @media print { #mobile-cart-fab { display: none !important; } }
+</style>
+
+<script id="responsive-patch-js">
+(function () {
+  // লেআউট ফিক্স: মূল র‍্যাপার যেন স্ক্রল করতে পারে
+  const wrap = document.querySelector('body > div.flex-1');
+  if (wrap) wrap.classList.add('min-h-0');
+
+  // ---- ফ্লোটিং কার্ট বাটন ----
+  const fab = document.createElement('button');
+  fab.id = 'mobile-cart-fab';
+  fab.className = 'no-print';
+  fab.type = 'button';
+  fab.innerHTML = '<span id="fab-left">🛒 কার্ট</span><span id="fab-right">দেখুন ↓</span>';
+  document.body.appendChild(fab);
+
+  const cartPanel = () => document.getElementById('cart-items-container')?.parentElement;
+  fab.addEventListener('click', () => {
+    const p = cartPanel();
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  let cartVisible = false;
+  function posActive() {
+    const v = document.getElementById('view-pos');
+    return v && !v.classList.contains('hidden');
+  }
+  function updateFab() {
+    const count = document.getElementById('cart-item-count')?.innerText || '';
+    const total = document.getElementById('pos-grand-total')?.innerText || '';
+    document.getElementById('fab-left').innerText = '🛒 ' + count;
+    document.getElementById('fab-right').innerText = total + '  ↓';
+    const login = document.getElementById('login-screen');
+    const loginOpen = login && !login.classList.contains('hidden');
+    fab.classList.toggle('show', posActive() && !cartVisible && !loginOpen);
+  }
+
+  function observeCart() {
+    const p = cartPanel();
+    if (p && 'IntersectionObserver' in window) {
+      new IntersectionObserver(es => { cartVisible = es[0].isIntersecting; updateFab(); }, { threshold: 0.15 }).observe(p);
+    }
+    ['cart-item-count', 'pos-grand-total'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) new MutationObserver(updateFab).observe(el, { childList: true, characterData: true, subtree: true });
+    });
+    const login = document.getElementById('login-screen');
+    if (login) new MutationObserver(updateFab).observe(login, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // ---- মোবাইল ট্যাবে সক্রিয় ট্যাব হাইলাইট ----
+  function highlightMobileTab(tabId) {
+    document.querySelectorAll('.mobile-tab').forEach(b => {
+      const active = (b.getAttribute('onclick') || '').includes("'" + tabId + "'");
+      b.classList.toggle('bg-brand-50', active);
+      b.classList.toggle('text-brand-700', active);
+    });
+  }
+
+  const origSwitch = window.switchTab;
+  if (typeof origSwitch === 'function') {
+    window.switchTab = function (tabId) {
+      origSwitch(tabId);
+      highlightMobileTab(tabId);
+      document.querySelector('main')?.scrollTo({ top: 0 });
+      updateFab();
+    };
+  }
+
+  window.addEventListener('DOMContentLoaded', () => { observeCart(); highlightMobileTab('pos'); updateFab(); });
+  if (document.readyState !== 'loading') { observeCart(); highlightMobileTab('pos'); updateFab(); }
+})();
+</script>
+<!-- ===== BUG FIX PATCH =====
+     এই পুরো ব্লকটি আপনার ফাইলের একদম শেষে, responsive patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। -->
+<script id="bugfix-patch-js">
+(function () {
+  'use strict';
+
+  /* =========================================================
+     1) ক্যামেরা স্ক্যানার ফিক্স
+        - পারমিশন পপআপ জোর করে চাওয়া হবে
+        - HTTPS / in-app browser সমস্যা হলে পরিষ্কার বার্তা
+        - একই বারকোড দুইবার কার্টে যোগ হওয়া বন্ধ
+        - বারকোডের জন্য উপযোগী চওড়া স্ক্যান বক্স ও ফরম্যাট
+  ========================================================= */
+  let camBusy = false;
+  let camHandled = false;
+
+  function setCamStatus(msg, isErr) {
+    let el = document.getElementById('cam-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cam-status';
+      el.style.cssText = 'font-size:12px;font-weight:600;padding:0 4px 8px;line-height:1.5;';
+      const box = document.getElementById('camera-reader-viewport').parentElement;
+      box.insertAdjacentElement('afterend', el);
+    }
+    el.textContent = msg || '';
+    el.style.color = isErr ? '#be123c' : '#475569';
+    el.style.display = msg ? 'block' : 'none';
+  }
+
+  function camErrText(err) {
+    const s = String((err && (err.name || err.message)) || err || '');
+    if (/NotAllowed|Permission|denied/i.test(s))
+      return 'ক্যামেরার অনুমতি বন্ধ আছে। অ্যাড্রেস বারের 🔒 আইকনে চেপে Camera → Allow করুন, তারপর পেজ রিলোড দিয়ে আবার চেষ্টা করুন।';
+    if (/NotFound|DevicesNotFound/i.test(s)) return 'এই ডিভাইসে কোনো ক্যামেরা পাওয়া যায়নি।';
+    if (/NotReadable|TrackStart|Could not start/i.test(s)) return 'ক্যামেরা অন্য অ্যাপ/ট্যাব ব্যবহার করছে। সেটা বন্ধ করে আবার চেষ্টা করুন।';
+    if (/Overconstrained/i.test(s)) return 'ক্যামেরা সেটিং মেলেনি, আবার চেষ্টা করুন।';
+    return 'ক্যামেরা চালু করা যায়নি (' + s + ')';
+  }
+
+  function loadScriptOnce(src) {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = () => rej(new Error('load failed'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureQrLib() {
+    if (typeof Html5Qrcode !== 'undefined') return true;
+    try { await loadScriptOnce('https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js'); } catch (e) {}
+    return typeof Html5Qrcode !== 'undefined';
+  }
+
+  function camModalOpen() {
+    const m = document.getElementById('camera-scanner-modal');
+    return m && !m.classList.contains('hidden');
+  }
+
+  window.openCameraScannerModal = function () {
+    const modal = document.getElementById('camera-scanner-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    lucide.createIcons();
+    startCameraScanner();
+  };
+
+  window.closeCameraScannerModal = function () {
+    stopCameraScanner();
+    const modal = document.getElementById('camera-scanner-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  };
+
+  window.stopCameraScanner = async function () {
+    const inst = html5CameraScannerInstance;
+    if (!inst) return;
+    try {
+      if (inst.isScanning) await inst.stop();
+      inst.clear();
+    } catch (e) { /* ignore */ }
+  };
+
+  window.startCameraScanner = async function () {
+    if (camBusy) return;
+    camBusy = true;
+    camHandled = false;
+    try {
+      setCamStatus('ক্যামেরা চালু হচ্ছে... (অনুমতি চাইলে Allow দিন)');
+
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCamStatus('ক্যামেরা চালাতে সাইটটি HTTPS (বা localhost) লিংকে খুলতে হবে। ফাইল বা http:// লিংকে ক্যামেরা কাজ করে না। Facebook/Messenger এর ভেতরের ব্রাউজারেও চলে না — Chrome বা Safari তে খুলুন।', true);
+        return;
+      }
+
+      if (!(await ensureQrLib())) {
+        setCamStatus('স্ক্যানার লাইব্রেরি লোড হয়নি। ইন্টারনেট চেক করে আবার চেষ্টা করুন।', true);
+        return;
+      }
+
+      // ১) আগে নিজে পারমিশন চেয়ে নিই
+      try {
+        const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        st.getTracks().forEach(t => t.stop());
+      } catch (err) {
+        setCamStatus(camErrText(err), true);
+        return;
+      }
+
+      if (!camModalOpen()) return; // পারমিশনের সময় ইউজার বন্ধ করে দিলে
+
+      await window.stopCameraScanner();
+
+      if (!html5CameraScannerInstance) {
+        const F = (typeof Html5QrcodeSupportedFormats !== 'undefined') ? Html5QrcodeSupportedFormats : null;
+        const cfgInst = { verbose: false, useBarCodeDetectorIfSupported: true };
+        if (F) cfgInst.formatsToSupport = [F.CODE_128, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_39, F.ITF, F.QR_CODE];
+        html5CameraScannerInstance = new Html5Qrcode('camera-reader-viewport', cfgInst);
+      }
+      const inst = html5CameraScannerInstance;
+
+      const cfg = {
+        fps: 12,
+        // বারকোড চওড়া, তাই চওড়া আয়তক্ষেত্র
+        qrbox: (w, h) => ({ width: Math.floor(Math.min(w, 340) * 0.9), height: Math.max(80, Math.floor(Math.min(h, 340) * 0.45)) }),
+        aspectRatio: 1.0
+      };
+
+      const onOk = (txt) => {
+        if (camHandled) return;
+        camHandled = true;
+        window.closeCameraScannerModal();
+        processScannedBarcode(txt);
+      };
+
+      try {
+        await inst.start({ facingMode: 'environment' }, cfg, onOk, () => {});
+      } catch (e1) {
+        const cams = await Html5Qrcode.getCameras();
+        if (!cams || !cams.length) throw e1;
+        await inst.start(cams[cams.length - 1].id, cfg, onOk, () => {});
+      }
+      setCamStatus('');
+    } catch (err) {
+      setCamStatus(camErrText(err), true);
+    } finally {
+      camBusy = false;
+    }
+  };
+
+  /* =========================================================
+     2) বারকোড প্রসেসিং ফিক্স
+        - SKU সংখ্যা হলেও ক্র্যাশ করবে না
+        - স্ক্যান ব্যর্থ হলেও ইনপুট খালি হবে (আগে পরের কোডের সাথে জুড়ে যেত)
+  ========================================================= */
+  window.processScannedBarcode = function (rawBarcode) {
+    const input = document.getElementById('pos-barcode-input');
+    const clearInput = () => { if (input) { input.value = ''; renderPosCatalog(); } };
+
+    const scannedCode = String(rawBarcode == null ? '' : rawBarcode).trim();
+    if (!scannedCode) return;
+    const lower = scannedCode.toLowerCase();
+    const compact = scannedCode.replace(/\s+/g, '');
+
+    let matchedProduct = null, matchedVariant = null;
+    for (const p of products) {
+      for (const v of p.variants) {
+        const sku = String(v.sku == null ? '' : v.sku);
+        if (sku && (sku.toLowerCase() === lower || sku.replace(/\s+/g, '') === compact)) {
+          matchedProduct = p; matchedVariant = v; break;
+        }
+      }
+      if (matchedProduct) break;
+    }
+
+    if (!matchedProduct) {
+      matchedProduct = products.find(p => String(p.id).toLowerCase() === lower || String(p.name).toLowerCase() === lower);
+      if (matchedProduct && matchedProduct.variants.length > 0) {
+        matchedVariant = matchedProduct.variants.find(v => Number(v.stock) > 0) || matchedProduct.variants[0];
+      }
+    }
+
+    if (matchedProduct && matchedVariant) {
+      if (Number(matchedVariant.stock) <= 0) {
+        playScanBeep(false);
+        showToast(`বারকোড পাওয়া গেছে কিন্তু ${matchedProduct.name} (সাইজ: ${matchedVariant.size}) এর স্টক শূন্য!`, 'error');
+        showScanInfoCard(matchedProduct, matchedVariant.size, false);
+        clearInput();
+        return;
+      }
+      playScanBeep(true);
+      addVariantToCart(matchedProduct.id, matchedVariant.size);
+      showScanInfoCard(matchedProduct, matchedVariant.size, true);
+    } else {
+      playScanBeep(false);
+      showToast(`❌ বারকোড '${scannedCode}' এর কোনো পণ্য পাওয়া যায়নি!`, 'error');
+    }
+    clearInput();
+  };
+
+  /* =========================================================
+     3) সেলস রিপোর্টের হিসাব ফিক্স (স্ক্রিন + PDF + প্রিন্ট)
+        আগের ভুলগুলো:
+        - ক্যাশ/ডিজিটাল কালেকশন ধরা হতো পুরো বিল, অথচ বাকি থাকলে কম পরিশোধ হয়েছে
+        - প্রকৃত বিক্রিতে ভ্যাট ঢুকে যেত, ফলে মোট − ছাড় ≠ প্রকৃত বিক্রি
+        - বাকি (Due) টাকার কোনো হিসাব ছিল না
+  ========================================================= */
+  function reportTotals(filtered) {
+    let gross = 0, tax = 0, grand = 0, cash = 0, digital = 0, due = 0;
+    filtered.forEach(s => {
+      const g = Number(s.grandTotal) || 0;
+      const t = Number(s.tax) || 0;
+      const d = Number(s.discount) || 0;
+      const sub = (s.subtotal != null && !isNaN(Number(s.subtotal))) ? Number(s.subtotal) : (g + d - t);
+      const paid = (s.paidAmount != null && !isNaN(Number(s.paidAmount))) ? Number(s.paidAmount) : g;
+      const collected = Math.min(Math.max(paid, 0), g);
+
+      gross += sub; tax += t; grand += g; due += Math.max(0, g - collected);
+      const pm = String(s.paymentMethod || '').toLowerCase();
+      if (pm.includes('cash') || pm.includes('ক্যাশ')) cash += collected; else digital += collected;
+    });
+    const net = grand - tax;          // প্রকৃত বিক্রি (ভ্যাট ছাড়া, ছাড়ের পর)
+    const disc = Math.max(0, gross - net); // টেবিল যেন মিলে যায়
+    return { gross, disc, net, tax, grand, cash, digital, due, count: filtered.length };
+  }
+
+  const fmt = (n) => Math.round(n).toLocaleString('bn-BD');
+
+  function reportRows(filtered, dateText) {
+    const t = reportTotals(filtered);
+    const rows = [
+      { l: 'তারিখ', v: dateText, k: 'text' },
+      { l: 'মোট বিক্রি (Gross Sales)', v: fmt(t.gross) + ' টাকা' },
+      { l: 'ডিসকাউন্ট (Discount)', v: fmt(t.disc) + ' টাকা', k: 'neg' },
+      { l: 'প্রকৃত বিক্রি (Net Sales)', v: fmt(t.net) + ' টাকা', k: 'net' }
+    ];
+    if (t.tax > 0) {
+      rows.push({ l: 'ভ্যাট/ট্যাক্স (VAT)', v: fmt(t.tax) + ' টাকা' });
+      rows.push({ l: 'সর্বমোট বিল (Net + VAT)', v: fmt(t.grand) + ' টাকা', k: 'bold' });
+    }
+    rows.push({ l: 'ক্যাশ কালেকশন (Cash)', v: fmt(t.cash) + ' টাকা' });
+    rows.push({ l: 'বিকাশ/নগদ/কার্ড (Digital)', v: fmt(t.digital) + ' টাকা' });
+    if (t.due > 0) rows.push({ l: 'বাকি (Due)', v: fmt(t.due) + ' টাকা', k: 'neg' });
+    rows.push({ l: 'মোট ইনভয়েস সংখ্যা', v: t.count.toLocaleString('bn-BD') + ' টি' });
+    return rows;
+  }
+
+  function screenRowsHTML(rows) {
+    return rows.map(r => {
+      const hl = r.k === 'net' ? 'bg-emerald-50/40' : '';
+      const lc = r.k === 'net' ? 'font-extrabold text-emerald-950' : 'font-bold text-slate-900';
+      const vc = r.k === 'net' ? 'font-extrabold font-mono text-emerald-800 text-base'
+               : r.k === 'neg' ? 'font-bold font-mono text-rose-600'
+               : r.k === 'text' ? 'font-semibold text-slate-800'
+               : 'font-bold font-mono text-slate-900';
+      return `<tr class="hover:bg-slate-50 transition ${hl}"><td class="py-3 px-6 ${lc}">${r.l}</td><td class="py-3 px-6 ${vc}">${r.v}</td></tr>`;
+    }).join('');
+  }
+
+  function pdfRowsHTML(rows) {
+    return rows.map((r, i) => {
+      const net = r.k === 'net';
+      const bg = net ? '#f0fdf4' : (i % 2 ? '#f8fafc' : '#ffffff');
+      const bd = net ? '#bbf7d0' : '#e2e8f0';
+      const lc = net ? '#166534' : '#334155';
+      const vc = net ? '#15803d' : (r.k === 'neg' ? '#dc2626' : '#0f172a');
+      const lw = net ? 800 : 600;
+      const vw = net ? 900 : 700;
+      const fs = net ? 'font-size:15px;' : '';
+      return `<tr style="background:${bg};"><td style="padding:11px 16px;border:1px solid ${bd};font-weight:${lw};color:${lc};">${r.l}</td><td style="padding:11px 16px;border:1px solid ${bd};font-weight:${vw};color:${vc};${fs}">${r.v}</td></tr>`;
+    }).join('');
+  }
+
+  // স্ক্রিনের টেবিল
+  const origRender = window.renderSalesReportView;
+  window.renderSalesReportView = function () {
+    origRender();
+    const tb = document.getElementById('custom-two-col-tbody');
+    if (tb) {
+      const { filtered, displayDateText } = getFilteredSalesReportData();
+      tb.innerHTML = screenRowsHTML(reportRows(filtered, displayDateText));
+    }
+  };
+
+  // PDF ও প্রিন্টের টেবিল
+  const origGen = window.generateReportHTML;
+  window.generateReportHTML = function (filtered, periodLabel, displayDateText) {
+    const html = origGen(filtered, periodLabel, displayDateText);
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const tb = doc.querySelector('table tbody');
+      if (tb) tb.innerHTML = pdfRowsHTML(reportRows(filtered, displayDateText));
+      return doc.body.innerHTML;
+    } catch (e) {
+      return html;
+    }
+  };
+
+  // কাস্টম রেঞ্জে শুরুর তারিখ শেষের পরে হলে ঠিক করে দেয়
+  function fixCustomRange(changedId) {
+    const s = document.getElementById('report-custom-start');
+    const e = document.getElementById('report-custom-end');
+    if (!s || !e || !s.value || !e.value || s.value <= e.value) return;
+    if (changedId === 'report-custom-start') e.value = s.value; else s.value = e.value;
+    onReportFilterChange();
+  }
+  ['report-custom-start', 'report-custom-end'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => fixCustomRange(id));
+  });
+
+  /* =========================================================
+     4) ড্যাশবোর্ড: আজকের বিক্রয়ে ভ্যাট বাদ ও বাকি আলাদা দেখানো
+        (সর্বমোট আয় = বিল − বাকি অর্থাৎ যা আসলে হাতে এসেছে)
+  ========================================================= */
+  const origDash = window.updateDashboard;
+  window.updateDashboard = function () {
+    origDash();
+    try {
+      const today = toLocalYMD(new Date());
+      const todaySales = sales.filter(s => toLocalYMD(s.date) === today);
+      const tt = reportTotals(todaySales);
+      const all = reportTotals(sales);
+      const el1 = document.getElementById('dash-today-sales');
+      const el2 = document.getElementById('dash-total-revenue');
+      const sub1 = document.getElementById('dash-today-count');
+      const sub2 = document.getElementById('dash-total-orders');
+      if (el1) el1.innerText = `৳ ${Math.round(tt.cash + tt.digital).toLocaleString('bn-BD')}`;
+      if (sub1) sub1.innerText = `${todaySales.length} টি মেমো` + (tt.due > 0 ? ` • বাকি ৳${fmt(tt.due)}` : '');
+      if (el2) el2.innerText = `৳ ${Math.round(all.cash + all.digital).toLocaleString('bn-BD')}`;
+      if (sub2) sub2.innerText = `${sales.length} টি মেমো সম্পন্ন` + (all.due > 0 ? ` • বাকি ৳${fmt(all.due)}` : '');
+    } catch (e) { /* ignore */ }
+  };
+
+  // সব ঠিকঠাক রেন্ডার হোক
+  try { window.renderSalesReportView(); window.updateDashboard(); } catch (e) {}
+})();
+</script>
+<!-- ===== RETURN (রিটার্ন / ফেরত) FEATURE PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, bugfix patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। -->
+<script id="return-patch-js">
+(function () {
+  'use strict';
+
+  const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('bn-BD');
+  const num = (v) => Number(v) || 0;
+
+  /* ---------- হেল্পার ---------- */
+  function itemKey(item) { return item.cartItemId || (item.productId + '_' + item.size); }
+
+  function retQty(sale, key) {
+    let q = 0;
+    (sale.returns || []).forEach(r => (r.items || []).forEach(i => { if (i.key === key) q += num(i.qty); }));
+    return q;
+  }
+
+  function saleSubtotal(s) {
+    if (s.subtotal != null && !isNaN(Number(s.subtotal)) && Number(s.subtotal) > 0) return Number(s.subtotal);
+    return (s.items || []).reduce((a, i) => a + num(i.price) * num(i.qty), 0);
+  }
+
+  // এক পিসের আসল প্রদেয় মূল্য (ছাড়/ভ্যাট আনুপাতিক হারে ধরে)
+  function ratioOf(s) {
+    const sub = saleSubtotal(s);
+    return sub > 0 ? num(s.grandTotal) / sub : 1;
+  }
+
+  function paidNet(s) {
+    const g = num(s.grandTotal);
+    const paid = (s.paidAmount != null && !isNaN(Number(s.paidAmount))) ? Number(s.paidAmount) : g;
+    return Math.min(Math.max(paid, 0), g);
+  }
+
+  function returnableRows(s) {
+    return (s.items || []).map(item => {
+      const key = itemKey(item);
+      const returned = retQty(s, key);
+      return { item, key, sold: num(item.qty), returned, max: Math.max(0, num(item.qty) - returned) };
+    });
+  }
+
+  // রিটার্ন হিসাব করা "কার্যকর" বিক্রয় (রিপোর্ট/ড্যাশবোর্ডের জন্য)
+  function effSale(s) {
+    if (!s.returns || !s.returns.length) return s;
+    const g = num(s.grandTotal);
+    const rv = Math.min(g, num(s.returnedValue));
+    const rf = num(s.returnedAmount);
+    const ratio = g > 0 ? (g - rv) / g : 0;
+    const c = Object.assign({}, s);
+    c.grandTotal = g - rv;
+    c.subtotal = saleSubtotal(s) * ratio;
+    c.discount = num(s.discount) * ratio;
+    c.tax = num(s.tax) * ratio;
+    c.paidAmount = Math.max(0, paidNet(s) - rf);
+    c._orig = s;
+    return c;
+  }
+
+  function collectedOf(e) {
+    const g = Math.max(0, num(e.grandTotal));
+    const paid = (e.paidAmount != null) ? num(e.paidAmount) : g;
+    return Math.min(Math.max(paid, 0), g);
+  }
+
+  /* ---------- রিপোর্টে রিটার্ন বাদ দেওয়া ---------- */
+  const origFiltered = window.getFilteredSalesReportData;
+  window.getFilteredSalesReportData = function () {
+    const r = origFiltered();
+    r.filtered = r.filtered.map(effSale);
+    return r;
+  };
+
+  /* ---------- মোডাল ---------- */
+  let refundEdited = false;
+
+  function modalEl() {
+    let m = document.getElementById('return-modal');
+    if (m) return m;
+    m = document.createElement('div');
+    m.id = 'return-modal';
+    m.className = 'fixed inset-0 z-[70] bg-slate-900/70 hidden items-center justify-center p-3 overflow-y-auto no-print';
+    m.innerHTML = '<div id="return-modal-box" class="bg-white rounded-2xl max-w-2xl w-full p-4 sm:p-5 shadow-2xl text-xs" style="max-height:94vh;max-height:94dvh;overflow-y:auto"></div>';
+    document.body.appendChild(m);
+    return m;
+  }
+  const boxEl = () => document.getElementById('return-modal-box');
+
+  window.closeReturnModal = function () {
+    const m = document.getElementById('return-modal');
+    if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+  };
+
+  window.openReturnModal = function (saleId) {
+    const m = modalEl();
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    if (saleId) renderDetail(saleId); else renderList();
+  };
+
+  function headerHTML(title) {
+    return `<div class="flex items-center justify-between pb-3 border-b border-slate-200">
+      <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">↩ ${title}</h3>
+      <button onclick="closeReturnModal()" class="text-slate-400 hover:text-slate-600 text-lg px-2">✕</button>
+    </div>`;
+  }
+
+  function renderList() {
+    boxEl().innerHTML = headerHTML('রিটার্ন / ফেরত — মেমো বেছে নিন') + `
+      <div class="mt-3">
+        <input id="ret-search" type="text" oninput="updateRetList(this.value)" placeholder="মেমো নং, গ্রাহকের নাম বা ফোন দিয়ে খুঁজুন..."
+               class="w-full px-3 py-2.5 border-2 border-rose-300 rounded-xl focus:outline-none focus:border-rose-500">
+        <div id="ret-list" class="mt-3 space-y-1.5"></div>
+      </div>`;
+    window.updateRetList('');
+    setTimeout(() => { const i = document.getElementById('ret-search'); if (i) i.focus(); }, 50);
+  }
+
+  window.updateRetList = function (q) {
+    const term = String(q || '').toLowerCase().trim();
+    const list = sales.filter(s => !term ||
+      String(s.id).toLowerCase().includes(term) ||
+      String(s.customerName || '').toLowerCase().includes(term) ||
+      String(s.customerPhone || '').includes(term)).slice(0, 15);
+    const el = document.getElementById('ret-list');
+    if (!el) return;
+    if (!list.length) { el.innerHTML = '<div class="py-8 text-center text-slate-400">কোনো মেমো পাওয়া যায়নি</div>'; return; }
+    el.innerHTML = list.map(s => {
+      const d = new Date(s.date).toLocaleDateString('bn-BD', { dateStyle: 'medium' });
+      const rb = (s.returns && s.returns.length) ? `<span class="text-[10px] font-bold text-rose-600">↩ রিটার্ন হয়েছে</span>` : '';
+      return `<button type="button" onclick="selectReturnSale('${esc(s.id)}')" class="w-full text-left p-2.5 border border-slate-200 hover:border-rose-400 hover:bg-rose-50 rounded-xl flex items-center justify-between gap-2">
+        <span class="min-w-0">
+          <span class="font-mono font-bold text-slate-900">${esc(s.id)}</span> ${rb}
+          <span class="block text-[11px] text-slate-500 truncate">${esc(s.customerName)} • ${esc(s.customerPhone)} • ${d}</span>
+        </span>
+        <span class="font-mono font-bold text-slate-900 shrink-0">৳ ${s.grandTotal}</span>
+      </button>`;
+    }).join('');
+  };
+
+  window.selectReturnSale = function (id) { renderDetail(id); };
+
+  function renderDetail(id) {
+    const s = sales.find(x => x.id === id);
+    if (!s) { showToast('মেমো পাওয়া যায়নি!', 'error'); return; }
+    refundEdited = false;
+    const rows = returnableRows(s);
+    const anyLeft = rows.some(r => r.max > 0);
+    const rvPrev = num(s.returnedValue), rfPrev = num(s.returnedAmount);
+
+    const prevInfo = (s.returns && s.returns.length)
+      ? `<div class="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold">আগে রিটার্ন: ৳${fmt(rvPrev)} মূল্যের পণ্য • রিফান্ড ৳${fmt(rfPrev)}</div>` : '';
+
+    const rowsHTML = rows.map(r => `
+      <tr class="border-b border-slate-100">
+        <td class="py-2 pr-2">
+          <div class="font-bold text-slate-900">${esc(r.item.name)}</div>
+          <div class="text-[11px] text-slate-500">সাইজ: ${esc(r.item.size)} • ৳${r.item.price}</div>
+        </td>
+        <td class="py-2 text-center font-mono font-bold">${r.sold}</td>
+        <td class="py-2 text-center font-mono ${r.returned ? 'text-rose-600 font-bold' : 'text-slate-400'}">${r.returned}</td>
+        <td class="py-2 text-right">
+          <input type="number" class="ret-qty w-16 px-2 py-1.5 border border-slate-300 rounded-lg text-center font-mono font-bold"
+                 min="0" max="${r.max}" value="0" data-key="${esc(r.key)}" data-max="${r.max}" ${r.max === 0 ? 'disabled' : ''} oninput="recalcReturn()">
+        </td>
+      </tr>`).join('');
+
+    boxEl().innerHTML = headerHTML('রিটার্ন / ফেরত নিন') + `
+      <div class="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+        <div class="flex items-center justify-between gap-2">
+          <span class="font-mono font-bold text-slate-900">${esc(s.id)}</span>
+          <button type="button" onclick="openReturnModal()" class="text-[11px] font-bold text-rose-600 hover:underline">← অন্য মেমো</button>
+        </div>
+        <div class="text-slate-600 mt-0.5">${esc(s.customerName)} • ${esc(s.customerPhone)} • ${new Date(s.date).toLocaleString('bn-BD', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+        <div class="mt-1 text-slate-700">মোট বিল: <b class="font-mono">৳${s.grandTotal}</b> • পরিশোধ: <b class="font-mono">৳${fmt(paidNet(s))}</b></div>
+        ${prevInfo}
+      </div>
+
+      ${anyLeft ? `
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-left">
+          <thead class="text-[11px] text-slate-500 uppercase border-b border-slate-200">
+            <tr><th class="py-2">পণ্য</th><th class="py-2 text-center">বিক্রি</th><th class="py-2 text-center">আগে ফেরত</th><th class="py-2 text-right">এখন ফেরত (পিস)</th></tr>
+          </thead>
+          <tbody>${rowsHTML}</tbody>
+        </table>
+      </div>
+
+      <div class="mt-3 grid grid-cols-2 gap-3 p-3 rounded-xl bg-rose-50/60 border border-rose-200">
+        <div>
+          <div class="text-[11px] font-bold text-slate-600 mb-1">ফেরত পণ্যের মূল্য</div>
+          <div id="ret-value" class="font-mono font-bold text-lg text-slate-900">৳ ০</div>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-rose-900 mb-1">গ্রাহককে টাকা ফেরত (রিফান্ড)</label>
+          <div class="flex items-center bg-white border border-rose-300 rounded-lg px-2 py-1">
+            <span class="font-mono font-bold text-slate-400">৳</span>
+            <input id="ret-refund" type="number" min="0" value="0" oninput="refundEdited_()" class="w-full text-right font-mono font-bold text-rose-700 focus:outline-none">
+          </div>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">কারণ (ঐচ্ছিক)</label>
+          <input id="ret-reason" type="text" placeholder="যেমন: সাইজ মেলেনি, ত্রুটিপূর্ণ" class="w-full px-3 py-2 border border-slate-300 rounded-lg">
+        </div>
+        <div class="col-span-2">
+          <div class="text-[11px] font-bold text-slate-600 mb-1">পণ্য স্টকে ফেরত যোগ করুন?</div>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="flex items-center justify-center py-2 rounded-lg border border-slate-300 bg-white cursor-pointer font-bold text-slate-700 has-[:checked]:bg-emerald-50 has-[:checked]:border-emerald-600 has-[:checked]:text-emerald-800">
+              <input type="radio" name="ret-restock" value="yes" checked class="hidden"> ✅ হ্যাঁ, স্টকে যোগ হবে
+            </label>
+            <label class="flex items-center justify-center py-2 rounded-lg border border-slate-300 bg-white cursor-pointer font-bold text-slate-700 has-[:checked]:bg-rose-50 has-[:checked]:border-rose-600 has-[:checked]:text-rose-800">
+              <input type="radio" name="ret-restock" value="no" class="hidden"> ❌ না (নষ্ট/ত্রুটিপূর্ণ)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+        <button type="button" onclick="closeReturnModal()" class="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-semibold">বাতিল</button>
+        <button type="button" onclick="submitReturn('${esc(s.id)}')" class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-md">রিটার্ন নিশ্চিত করুন</button>
+      </div>` : `
+      <div class="mt-4 py-8 text-center text-slate-500 font-semibold">এই মেমোর সব পণ্য ইতোমধ্যে ফেরত নেওয়া হয়েছে।</div>
+      <div class="flex justify-end"><button type="button" onclick="closeReturnModal()" class="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-semibold">বন্ধ করুন</button></div>`}
+    `;
+  }
+
+  window.refundEdited_ = function () { refundEdited = true; };
+
+  function currentSale() {
+    const idEl = boxEl() && boxEl().querySelector('[onclick^="submitReturn"]');
+    if (!idEl) return null;
+    const m = idEl.getAttribute('onclick').match(/submitReturn\('(.+?)'\)/);
+    const id = m ? m[1].replace(/&#39;/g, "'") : null;
+    return sales.find(x => x.id === id) || null;
+  }
+
+  function collectPicks(s) {
+    const rows = returnableRows(s);
+    const byKey = {}; rows.forEach(r => byKey[r.key] = r);
+    const picks = [];
+    document.querySelectorAll('#return-modal .ret-qty').forEach(inp => {
+      const r = byKey[inp.dataset.key];
+      if (!r) return;
+      let q = Math.floor(num(inp.value));
+      q = Math.max(0, Math.min(r.max, q));
+      if (inp.value !== '' && String(q) !== inp.value) inp.value = q;
+      if (q > 0) picks.push({ row: r, qty: q });
+    });
+    return picks;
+  }
+
+  function calcValue(s, picks) {
+    const g = num(s.grandTotal), rvPrev = num(s.returnedValue);
+    const remainingValue = Math.max(0, g - rvPrev);
+    const rows = returnableRows(s);
+    const totalMax = rows.reduce((a, r) => a + r.max, 0);
+    const totalPick = picks.reduce((a, p) => a + p.qty, 0);
+    if (totalPick > 0 && totalPick === totalMax) return remainingValue; // সব ফেরত — রাউন্ডিং মিলিয়ে
+    const ratio = ratioOf(s);
+    const raw = picks.reduce((a, p) => a + num(p.row.item.price) * ratio * p.qty, 0);
+    return Math.min(remainingValue, Math.round(raw));
+  }
+
+  function suggestRefund(s, value) {
+    const g = num(s.grandTotal), rvPrev = num(s.returnedValue), rfPrev = num(s.returnedAmount);
+    const paidRem = Math.max(0, paidNet(s) - rfPrev);
+    const gAfter = g - rvPrev - value;
+    return Math.max(0, Math.min(paidRem, Math.round(paidRem - gAfter))); // শুধু বাড়তি পরিশোধ ফেরত
+  }
+
+  window.recalcReturn = function () {
+    const s = currentSale();
+    if (!s) return;
+    const picks = collectPicks(s);
+    const value = calcValue(s, picks);
+    const vEl = document.getElementById('ret-value');
+    if (vEl) vEl.innerText = '৳ ' + fmt(value);
+    const rEl = document.getElementById('ret-refund');
+    if (rEl && !refundEdited) rEl.value = suggestRefund(s, value);
+  };
+
+  window.submitReturn = function (saleId) {
+    const s = sales.find(x => x.id === saleId);
+    if (!s) return;
+    const picks = collectPicks(s);
+    if (!picks.length) { showToast('অন্তত একটি পণ্যের ফেরত পরিমাণ দিন!', 'warning'); return; }
+
+    const value = calcValue(s, picks);
+    const refund = Math.max(0, Math.round(num(document.getElementById('ret-refund').value)));
+    const paidRem = Math.max(0, paidNet(s) - num(s.returnedAmount));
+    if (refund > paidRem) { showToast(`রিফান্ড ৳${fmt(paidRem)} এর বেশি হতে পারে না (এই মেমোতে এতটুকুই পরিশোধ হয়েছে)।`, 'error'); return; }
+
+    const restockEl = document.querySelector('input[name="ret-restock"]:checked');
+    const restock = !restockEl || restockEl.value === 'yes';
+    const reason = document.getElementById('ret-reason').value.trim();
+    const names = picks.map(p => `${p.row.item.name} [${p.row.item.size}] ×${p.qty}`).join(', ');
+    if (!confirm(`রিটার্ন নিশ্চিত করবেন?\n\n${names}\n\nপণ্যের মূল্য: ৳${fmt(value)}\nগ্রাহককে ফেরত: ৳${fmt(refund)}\nস্টকে যোগ: ${restock ? 'হ্যাঁ' : 'না'}`)) return;
+
+    const ret = {
+      id: 'RET-' + Date.now().toString().slice(-8),
+      date: new Date().toISOString(),
+      items: picks.map(p => ({
+        key: p.row.key, productId: p.row.item.productId, size: p.row.item.size, name: p.row.item.name,
+        sku: p.row.item.sku || '', price: num(p.row.item.price), buyPrice: num(p.row.item.buyPrice), qty: p.qty
+      })),
+      value, refund, restock, reason, by: (typeof currentUserEmail !== 'undefined' ? currentUserEmail : '') || ''
+    };
+
+    s.returns = (s.returns || []).concat([ret]);
+    s.returnedValue = num(s.returnedValue) + value;
+    s.returnedAmount = num(s.returnedAmount) + refund;
+
+    // স্টকে ফেরত
+    let missing = 0;
+    if (restock) {
+      const changed = new Set();
+      ret.items.forEach(i => {
+        const p = products.find(x => x.id === i.productId);
+        const v = p && p.variants.find(x => String(x.size) === String(i.size));
+        if (v) { v.stock = num(v.stock) + i.qty; changed.add(p); } else { missing++; }
+      });
+      changed.forEach(p => { if (window.cloudSaveProduct) window.cloudSaveProduct(p); });
+    }
+
+    saveProducts();
+    saveSales();
+    if (window.cloudSaveSale) window.cloudSaveSale(s);
+
+    window.closeReturnModal();
+    showToast(`✅ রিটার্ন সম্পন্ন (${ret.id}) — রিফান্ড ৳${fmt(refund)}` + (missing ? ' • কিছু পণ্য আর তালিকায় নেই, স্টকে যোগ হয়নি' : ''), 'success');
+    viewPastReceipt(s.id); // মেমোতে রিটার্ন অংশসহ প্রিন্ট করা যাবে
+  };
+
+  /* ---------- মেমোতে রিটার্ন অংশ দেখানো/প্রিন্ট ---------- */
+  const origReceipt = window.renderReceiptTemplate;
+  window.renderReceiptTemplate = function () {
+    origReceipt();
+    const s = currentViewingSale;
+    const container = document.getElementById('print-area');
+    if (!s || !container || !s.returns || !s.returns.length) return;
+    const g = num(s.grandTotal), rv = num(s.returnedValue);
+    const div = document.createElement('div');
+    div.style.cssText = 'margin-top:8px;padding:6px 8px;border-top:1px dashed #000;font-size:11px;line-height:1.4;color:#000;';
+    div.innerHTML = '<div style="font-weight:800;margin-bottom:2px;">↩ রিটার্ন / ফেরত</div>' +
+      s.returns.map(r => {
+        const d = new Date(r.date).toLocaleString('bn-BD', { dateStyle: 'medium', timeStyle: 'short' });
+        return `<div style="margin-bottom:3px;">${esc(r.id)} • ${d}<br>` +
+          r.items.map(i => `${esc(i.name)} [${esc(i.size)}] ×${i.qty}`).join(', ') +
+          `<br>মূল্য −৳${fmt(r.value)} • রিফান্ড ৳${fmt(r.refund)}${r.reason ? ' • ' + esc(r.reason) : ''}</div>`;
+      }).join('') +
+      `<div style="font-weight:800;border-top:1px solid #000;padding-top:2px;">নিট বিল: ৳${fmt(g - rv)}</div>`;
+    container.appendChild(div);
+  };
+
+  /* ---------- রিপোর্টের মেমো তালিকায় রিটার্ন বাটন ---------- */
+  const origRender = window.renderSalesReportView;
+  window.renderSalesReportView = function () {
+    origRender();
+    document.querySelectorAll('#sales-tbody tr').forEach(tr => {
+      const tds = tr.children;
+      if (tds.length < 8) return;
+      const id = tds[0].textContent.replace(/↩.*$/, '').trim();
+      const s = sales.find(x => x.id === id);
+      if (!s) return;
+      if (s.returns && s.returns.length) {
+        const b = document.createElement('div');
+        b.className = 'text-[10px] font-bold text-rose-600 font-sans';
+        b.textContent = '↩ রিটার্ন −৳' + fmt(s.returnedValue);
+        tds[0].appendChild(b);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg';
+      btn.style.cssText = 'display:block;margin:4px auto 0;';
+      btn.textContent = '↩ রিটার্ন';
+      btn.onclick = () => window.openReturnModal(s.id);
+      tds[7].appendChild(btn);
+    });
+  };
+
+  /* ---------- ড্যাশবোর্ড: রিটার্ন বাদ দিয়ে আয় ও লাভ ---------- */
+  const origDash = window.updateDashboard;
+  window.updateDashboard = function () {
+    origDash();
+    try {
+      const today = toLocalYMD(new Date());
+      const eff = sales.map(effSale);
+      const todayEff = eff.filter(s => toLocalYMD(s.date) === today);
+      const sumCol = (a) => a.reduce((x, s) => x + collectedOf(s), 0);
+      const sumDue = (a) => a.reduce((x, s) => x + Math.max(0, num(s.grandTotal) - collectedOf(s)), 0);
+
+      const set = (id, t) => { const el = document.getElementById(id); if (el) el.innerText = t; };
+      set('dash-today-sales', `৳ ${Math.round(sumCol(todayEff)).toLocaleString('bn-BD')}`);
+      set('dash-today-count', `${todayEff.length} টি মেমো` + (sumDue(todayEff) > 0 ? ` • বাকি ৳${fmt(sumDue(todayEff))}` : ''));
+      set('dash-total-revenue', `৳ ${Math.round(sumCol(eff)).toLocaleString('bn-BD')}`);
+      set('dash-total-orders', `${sales.length} টি মেমো সম্পন্ন` + (sumDue(eff) > 0 ? ` • বাকি ৳${fmt(sumDue(eff))}` : ''));
+
+      // লাভ = (বিক্রয় − ক্রয়) × ফেরত বাদে পরিমাণ − কার্যকর ছাড়
+      let profit = 0, cost = 0;
+      todayEff.forEach(e => {
+        const s = e._orig || e;
+        (s.items || []).forEach(i => {
+          const q = Math.max(0, num(i.qty) - retQty(s, itemKey(i)));
+          profit += (num(i.price) - num(i.buyPrice)) * q;
+          cost += num(i.buyPrice) * q;
+        });
+        profit -= num(e.discount);
+      });
+      const rounded = Math.round(profit);
+      const pEl = document.getElementById('dash-today-profit');
+      if (pEl) {
+        pEl.innerText = `${rounded < 0 ? '- ' : ''}৳ ${Math.abs(rounded).toLocaleString('bn-BD')}`;
+        pEl.classList.toggle('text-emerald-700', rounded >= 0);
+        pEl.classList.toggle('text-rose-600', rounded < 0);
+      }
+      set('dash-today-profit-sub', `ক্রয় খরচ ৳ ${fmt(cost)} বাদে`);
+    } catch (e) { /* ignore */ }
+  };
+
+  /* ---------- বাটন বসানো ---------- */
+  function addButtons() {
+    // ১) সাইডবার (পিসি/ট্যাবলেট)
+    const sideAdd = document.querySelector('aside button[onclick="openAddProductModal()"]');
+    if (sideAdd && !document.getElementById('ret-side-btn')) {
+      const b = document.createElement('button');
+      b.id = 'ret-side-btn';
+      b.type = 'button';
+      b.className = 'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl shadow-xs transition active:scale-95';
+      b.innerHTML = '<span>↩</span><span>রিটার্ন / ফেরত</span>';
+      b.onclick = () => window.openReturnModal();
+      sideAdd.insertAdjacentElement('afterend', b);
+    }
+    // ২) মোবাইল টপ বার
+    const mobLogout = document.querySelector('header button[onclick="handleLogout()"]');
+    if (mobLogout && !document.getElementById('ret-mob-btn')) {
+      const b = document.createElement('button');
+      b.id = 'ret-mob-btn';
+      b.type = 'button';
+      b.title = 'রিটার্ন';
+      b.className = 'p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-xs transition active:scale-95 font-bold leading-none';
+      b.style.cssText = 'min-width:36px;height:36px;font-size:16px;';
+      b.textContent = '↩';
+      b.onclick = () => window.openReturnModal();
+      mobLogout.insertAdjacentElement('beforebegin', b);
+    }
+    // ৩) মেমো প্রিভিউ মোডাল (পুরনো/নতুন মেমো থেকে সরাসরি রিটার্ন)
+    const printBtn = document.querySelector('#receipt-modal button[onclick="triggerInvoicePrint()"]');
+    if (printBtn && !document.getElementById('ret-receipt-btn')) {
+      const b = document.createElement('button');
+      b.id = 'ret-receipt-btn';
+      b.type = 'button';
+      b.className = 'px-4 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5';
+      b.innerHTML = '<span>↩</span> রিটার্ন';
+      b.onclick = () => { if (currentViewingSale) { closeReceiptModal(); window.openReturnModal(currentViewingSale.id); } };
+      printBtn.insertAdjacentElement('beforebegin', b);
+    }
+    // ৪) রিপোর্ট পেজের হেডার
+    const csvBtn = document.querySelector('#view-reports button[onclick="exportSalesCSV()"]');
+    if (csvBtn && !document.getElementById('ret-report-btn')) {
+      const b = document.createElement('button');
+      b.id = 'ret-report-btn';
+      b.type = 'button';
+      b.className = 'px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95';
+      b.innerHTML = '<span>↩</span> রিটার্ন / ফেরত';
+      b.onclick = () => window.openReturnModal();
+      csvBtn.insertAdjacentElement('afterend', b);
+    }
+  }
+  addButtons();
+
+  // সব ঠিকঠাক রেন্ডার হোক
+  try { window.renderSalesReportView(); window.updateDashboard(); } catch (e) {}
+})();
+</script>
+<!-- ===== DUE (বাকি) FEATURE PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, return patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<script id="due-patch-js">
+(function () {
+  'use strict';
+
+  const num = (v) => Number(v) || 0;
+  const fmt = (n) => Math.round(num(n)).toLocaleString('bn-BD');
+  const DUE_LABEL = 'বাকি (Due)';
+
+  /* ---------- হেল্পার ---------- */
+  function isDueSale(s) {
+    const pm = String(s.paymentMethod || '').toLowerCase();
+    return pm.includes('due') || pm.includes('বাকি');
+  }
+  function paidNet(s) {
+    const g = num(s.grandTotal);
+    const p = (s.paidAmount != null && !isNaN(Number(s.paidAmount))) ? Number(s.paidAmount) : g;
+    return Math.min(Math.max(p, 0), g);
+  }
+  // রিটার্ন বাদ দিয়ে কার্যকর বিল
+  function effTotal(s) { return Math.max(0, num(s.grandTotal) - num(s.returnedValue)); }
+  // এ পর্যন্ত যা হাতে এসেছে (রিফান্ড বাদে)
+  function collectedOf(s) {
+    return Math.min(Math.max(0, paidNet(s) - num(s.returnedAmount)), effTotal(s));
+  }
+  function dueOf(s) { return Math.max(0, Math.round(effTotal(s) - collectedOf(s))); }
+
+  /* =========================================================
+     1) POS তে "বাকি" পেমেন্ট অপশন
+  ========================================================= */
+  let wasDue = false;
+
+  function onPayChange(e) {
+    if (!e.target || e.target.name !== 'pay-method') return;
+    const paid = document.getElementById('pos-paid-amount');
+    if (e.target.value === DUE_LABEL) {
+      wasDue = true;
+      paidManuallyEdited = true;
+      paid.value = '0';
+      calculateChange();
+      showToast('বাকি: পরিশোধ ০ ধরা হয়েছে। অগ্রিম নিলে "পরিশোধ" ঘরে লিখুন। গ্রাহকের মোবাইল নম্বর দিন।', 'info');
+    } else if (wasDue) {
+      wasDue = false;
+      paidManuallyEdited = false;
+      updateCartTotals();
+    }
+  }
+
+  function addDueRadio() {
+    const first = document.querySelector('input[name="pay-method"]');
+    if (!first || document.getElementById('pay-due-radio')) return;
+    const wrap = first.closest('label').parentElement;
+    wrap.classList.remove('grid-cols-4');
+    wrap.classList.add('grid-cols-5');
+    const l = document.createElement('label');
+    l.className = 'flex items-center justify-center py-1.5 px-1 rounded-lg border border-rose-200 bg-white cursor-pointer hover:border-rose-500 text-[11px] font-bold has-[:checked]:bg-rose-50 has-[:checked]:border-rose-600 has-[:checked]:text-rose-800';
+    l.innerHTML = '<input type="radio" id="pay-due-radio" name="pay-method" value="' + DUE_LABEL + '" class="hidden"> বাকি';
+    wrap.appendChild(l);
+    wrap.addEventListener('change', onPayChange);
+  }
+
+  const origCheckout = window.processCheckout;
+  window.processCheckout = function () {
+    const r = document.querySelector('input[name="pay-method"]:checked');
+    const isDue = r && r.value === DUE_LABEL;
+    if (isDue) {
+      if (!cart.length) { showToast('কার্টে কোনো পণ্য নেই!', 'error'); return; }
+      const phoneEl = document.getElementById('cart-cust-phone');
+      if (!phoneEl.value.trim()) {
+        showToast('বাকিতে বিক্রির জন্য গ্রাহকের মোবাইল নম্বর দিন!', 'warning');
+        phoneEl.focus();
+        return;
+      }
+      const t = updateCartTotals();
+      const paidEl = document.getElementById('pos-paid-amount');
+      if (paidEl.value === '') paidEl.value = '0';
+      if ((parseFloat(paidEl.value) || 0) >= t.grandTotal) {
+        showToast('পরিশোধ পুরো বিলের সমান — বাকি থাকছে না। "ক্যাশ" বেছে নিন, অথবা পরিশোধ কমান।', 'warning');
+        return;
+      }
+    }
+    const before = sales.length;
+    origCheckout();
+    if (sales.length > before) {
+      const cash = document.querySelector('input[name="pay-method"]');
+      if (cash) cash.checked = true;
+      wasDue = false;
+    }
+  };
+
+  /* =========================================================
+     2) বাকি আদায়ের পর রিপোর্টে সঠিক মাধ্যম (ক্যাশ/ডিজিটাল) ধরা
+  ========================================================= */
+  const origFiltered = window.getFilteredSalesReportData;
+  window.getFilteredSalesReportData = function () {
+    const r = origFiltered();
+    r.filtered = r.filtered.map(s => {
+      if (isDueSale(s) && num(s.paidAmount) > 0) {
+        const c = Object.assign({}, s);
+        c.paymentMethod = s.dueMethod || 'ক্যাশ (Cash)';
+        return c;
+      }
+      return s;
+    });
+    return r;
+  };
+
+  function addReportFilterOption() {
+    const sel = document.getElementById('report-method-filter');
+    if (sel && !sel.querySelector('option[value="Due"]')) {
+      const o = document.createElement('option');
+      o.value = 'Due';
+      o.textContent = 'বাকি (Due)';
+      sel.appendChild(o);
+    }
+  }
+
+  /* =========================================================
+     3) বাকি খাতা (মোডাল)
+  ========================================================= */
+  let curGroups = [];
+  let activeKey = null;
+
+  function modalEl() {
+    let m = document.getElementById('due-modal');
+    if (m) return m;
+    m = document.createElement('div');
+    m.id = 'due-modal';
+    m.className = 'fixed inset-0 z-[70] bg-slate-900/70 hidden items-center justify-center p-3 overflow-y-auto no-print';
+    m.innerHTML = '<div id="due-modal-box" class="bg-white rounded-2xl max-w-2xl w-full p-4 sm:p-5 shadow-2xl text-xs" style="max-height:94vh;max-height:94dvh;overflow-y:auto"></div>';
+    document.body.appendChild(m);
+    return m;
+  }
+  const boxEl = () => document.getElementById('due-modal-box');
+
+  function headerHTML(title) {
+    return `<div class="flex items-center justify-between pb-3 border-b border-slate-200">
+      <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">📒 ${title}</h3>
+      <button onclick="closeDueModal()" class="text-slate-400 hover:text-slate-600 text-lg px-2">✕</button>
+    </div>`;
+  }
+
+  window.closeDueModal = function () {
+    const m = document.getElementById('due-modal');
+    if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+  };
+
+  window.openDueModal = function () {
+    const m = modalEl();
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    renderDueShell();
+  };
+
+  function buildGroups(q) {
+    const term = String(q || '').toLowerCase().trim();
+    const map = {};
+    sales.forEach(s => {
+      const d = dueOf(s);
+      if (d <= 0) return;
+      const ph = String(s.customerPhone || '').trim();
+      const phone = (ph && ph !== 'প্রযোজ্য নয়') ? ph : '';
+      const name = String(s.customerName || '').trim() || 'অজানা গ্রাহক';
+      const key = phone || ('name:' + name);
+      if (!map[key]) map[key] = { key, name, phone, total: 0, sales: [] };
+      map[key].total += d;
+      map[key].sales.push(s);
+    });
+    let list = Object.values(map);
+    list.forEach(g => g.sales.sort((a, b) => new Date(a.date) - new Date(b.date)));
+    if (term) {
+      list = list.filter(g => g.name.toLowerCase().includes(term) || g.phone.includes(term) ||
+        g.sales.some(s => String(s.id).toLowerCase().includes(term)));
+    }
+    list.sort((a, b) => b.total - a.total);
+    return list;
+  }
+
+  function renderDueShell() {
+    activeKey = null;
+    boxEl().innerHTML = headerHTML('বাকি খাতা (Due Book)') + `
+      <div id="due-summary" class="mt-3"></div>
+      <input id="due-search" type="text" oninput="renderDueResults(this.value)" placeholder="গ্রাহকের নাম, ফোন বা মেমো নং দিয়ে খুঁজুন..."
+             class="mt-3 w-full px-3 py-2.5 border-2 border-rose-300 rounded-xl focus:outline-none focus:border-rose-500">
+      <div id="due-results" class="mt-3 space-y-2"></div>`;
+    window.renderDueResults('');
+  }
+
+  window.renderDueResults = function (q) {
+    const all = buildGroups('');
+    const sum = all.reduce((a, g) => a + g.total, 0);
+    const sumEl = document.getElementById('due-summary');
+    if (sumEl) {
+      sumEl.innerHTML = `<div class="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between">
+        <span class="font-bold text-rose-900">মোট বাকি (${all.length.toLocaleString('bn-BD')} জন গ্রাহক)</span>
+        <span class="font-mono font-bold text-lg text-rose-700">৳ ${fmt(sum)}</span></div>`;
+    }
+    curGroups = buildGroups(q);
+    const el = document.getElementById('due-results');
+    if (!el) return;
+    if (!curGroups.length) {
+      el.innerHTML = '<div class="py-10 text-center text-slate-400 font-semibold">কোনো বাকি নেই 🎉</div>';
+      return;
+    }
+    el.innerHTML = curGroups.map((g, i) => `
+      <div class="p-3 border border-slate-200 rounded-xl">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-bold text-slate-900 text-sm truncate">${esc(g.name)}</div>
+            <div class="text-[11px] text-slate-500 font-mono">${esc(g.phone || 'ফোন নেই')} • ${g.sales.length.toLocaleString('bn-BD')} টি মেমো</div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="font-mono font-bold text-rose-600 text-base">৳ ${fmt(g.total)}</div>
+            <button type="button" onclick="openDueCollect(${i})" class="mt-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold">টাকা আদায়</button>
+          </div>
+        </div>
+        <div class="mt-2 space-y-0.5 text-[11px] text-slate-600">
+          ${g.sales.map(s => `<div class="flex justify-between gap-2">
+            <span class="truncate"><span class="font-mono font-bold">${esc(s.id)}</span> • ${new Date(s.date).toLocaleDateString('bn-BD', { dateStyle: 'medium' })}</span>
+            <span class="shrink-0">বিল ৳${fmt(effTotal(s))} • পরিশোধ ৳${fmt(collectedOf(s))} • <b class="text-rose-600">বাকি ৳${fmt(dueOf(s))}</b></span></div>`).join('')}
+        </div>
+      </div>`).join('');
+  };
+
+  window.openDueCollect = function (i) {
+    const g = curGroups[i];
+    if (!g) return;
+    activeKey = g.key;
+    boxEl().innerHTML = headerHTML('বাকি আদায়') + `
+      <div class="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-bold text-slate-900 text-sm truncate">${esc(g.name)}</div>
+            <div class="text-[11px] text-slate-500 font-mono">${esc(g.phone || 'ফোন নেই')}</div>
+          </div>
+          <button type="button" onclick="renderDueShell_()" class="text-[11px] font-bold text-rose-600 hover:underline shrink-0">← তালিকা</button>
+        </div>
+        <div class="mt-2 text-slate-700">মোট বাকি: <b class="font-mono text-rose-700 text-base">৳ ${fmt(g.total)}</b></div>
+        <div class="mt-1 text-[11px] text-slate-500">টাকা পুরনো মেমো থেকে শুরু করে ক্রমান্বয়ে মেটানো হবে।</div>
+      </div>
+
+      <div class="mt-3 grid grid-cols-2 gap-3 p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
+        <div>
+          <label class="block text-[11px] font-bold text-emerald-900 mb-1">আদায়ের পরিমাণ</label>
+          <div class="flex items-center bg-white border border-emerald-300 rounded-lg px-2 py-1">
+            <span class="font-mono font-bold text-slate-400">৳</span>
+            <input id="due-amount" type="number" min="1" max="${g.total}" value="${g.total}" class="w-full text-right font-mono font-bold text-emerald-800 focus:outline-none">
+          </div>
+          <button type="button" onclick="document.getElementById('due-amount').value=${g.total}" class="mt-1 text-[11px] font-bold text-emerald-700 hover:underline">সম্পূর্ণ বাকি</button>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-emerald-900 mb-1">পেমেন্ট মাধ্যম</label>
+          <select id="due-method" class="w-full px-2 py-2 bg-white border border-emerald-300 rounded-lg font-bold text-slate-800">
+            <option value="ক্যাশ (Cash)">ক্যাশ</option>
+            <option value="বিকাশ (bKash)">বিকাশ</option>
+            <option value="নগদ (Nagad)">নগদ</option>
+            <option value="কার্ড (Card)">কার্ড</option>
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">নোট (ঐচ্ছিক)</label>
+          <input id="due-note" type="text" placeholder="যেমন: আংশিক পরিশোধ" class="w-full px-3 py-2 border border-slate-300 rounded-lg">
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+        <button type="button" onclick="closeDueModal()" class="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-semibold">বাতিল</button>
+        <button type="button" onclick="submitDueCollect()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md">আদায় নিশ্চিত করুন</button>
+      </div>`;
+  };
+
+  window.renderDueShell_ = function () { renderDueShell(); };
+
+  window.submitDueCollect = function () {
+    const g = buildGroups('').find(x => x.key === activeKey);
+    if (!g) { showToast('বাকি পাওয়া যায়নি (হয়তো আগেই মেটানো হয়েছে)।', 'warning'); renderDueShell(); return; }
+
+    const amt = Math.round(num(document.getElementById('due-amount').value));
+    const method = document.getElementById('due-method').value;
+    const note = document.getElementById('due-note').value.trim();
+
+    if (amt <= 0) { showToast('আদায়ের পরিমাণ দিন!', 'warning'); return; }
+    if (amt > g.total) { showToast(`আদায় ৳${fmt(g.total)} এর বেশি হতে পারে না।`, 'error'); return; }
+    if (!confirm(`৳${fmt(amt)} আদায় নিশ্চিত করবেন?\n\nগ্রাহক: ${g.name}\nমাধ্যম: ${method}\nআদায়ের পর বাকি: ৳${fmt(g.total - amt)}`)) return;
+
+    let rem = amt;
+    const changed = [];
+    const nowIso = new Date().toISOString();
+    g.sales.forEach((s, idx) => {
+      if (rem <= 0) return;
+      const p = Math.min(dueOf(s), rem);
+      if (p <= 0) return;
+      s.paidAmount = paidNet(s) + p;
+      s.duePayments = (s.duePayments || []).concat([{
+        id: 'DUE-' + Date.now().toString().slice(-8) + '-' + idx,
+        date: nowIso,
+        amount: p,
+        method,
+        note,
+        by: (typeof currentUserEmail !== 'undefined' ? currentUserEmail : '') || ''
+      }]);
+      s.dueMethod = method;
+      rem -= p;
+      changed.push(s);
+    });
+
+    saveSales();
+    changed.forEach(s => { if (window.cloudSaveSale) window.cloudSaveSale(s); });
+
+    showToast(`✅ ৳${fmt(amt)} বাকি আদায় হয়েছে (${g.name})`, 'success');
+    renderDueShell();
+  };
+
+  /* =========================================================
+     4) ড্যাশবোর্ডে "মোট বাকি" কার্ড
+  ========================================================= */
+  function addDashCard() {
+    const grid = document.querySelector('#view-dashboard > .grid');
+    if (!grid || document.getElementById('dash-total-due')) return;
+    const c = document.createElement('div');
+    c.className = 'bg-white p-5 rounded-2xl border border-rose-200 shadow-xs flex items-center gap-4 cursor-pointer hover:bg-rose-50 transition';
+    c.onclick = () => window.openDueModal();
+    c.innerHTML = `
+      <div class="w-12 h-12 shrink-0 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-2xl">📒</div>
+      <div class="min-w-0">
+        <p class="text-xs font-semibold text-slate-400 uppercase">মোট বাকি (Due)</p>
+        <h3 id="dash-total-due" class="text-2xl font-bold text-rose-600 font-mono">৳ ০</h3>
+        <span id="dash-due-count" class="text-[11px] text-rose-500 font-semibold">বাকি খাতা দেখুন →</span>
+      </div>`;
+    grid.appendChild(c);
+    grid.classList.remove('xl:grid-cols-5');
+    grid.classList.add('xl:grid-cols-3');
+  }
+
+  const origDash = window.updateDashboard;
+  window.updateDashboard = function () {
+    origDash();
+    try {
+      addDashCard();
+      const groups = buildGroups('');
+      const total = groups.reduce((a, g) => a + g.total, 0);
+      const t = document.getElementById('dash-total-due');
+      const c = document.getElementById('dash-due-count');
+      if (t) t.innerText = `৳ ${fmt(total)}`;
+      if (c) c.innerText = `${groups.length.toLocaleString('bn-BD')} জন গ্রাহক • খাতা দেখুন →`;
+    } catch (e) { /* ignore */ }
+  };
+
+  /* =========================================================
+     5) বাটন বসানো (সাইডবার, মোবাইল টপ বার, রিপোর্ট পেজ)
+  ========================================================= */
+  function addButtons() {
+    const sideAdd = document.querySelector('aside button[onclick="openAddProductModal()"]');
+    if (sideAdd && !document.getElementById('due-side-btn')) {
+      const b = document.createElement('button');
+      b.id = 'due-side-btn';
+      b.type = 'button';
+      b.className = 'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-xl shadow-xs transition active:scale-95';
+      b.innerHTML = '<span>📒</span><span>বাকি খাতা</span>';
+      b.onclick = () => window.openDueModal();
+      sideAdd.insertAdjacentElement('afterend', b);
+    }
+    const mobLogout = document.querySelector('header button[onclick="handleLogout()"]');
+    if (mobLogout && !document.getElementById('due-mob-btn')) {
+      const b = document.createElement('button');
+      b.id = 'due-mob-btn';
+      b.type = 'button';
+      b.title = 'বাকি খাতা';
+      b.className = 'p-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition active:scale-95 leading-none';
+      b.style.cssText = 'min-width:36px;height:36px;font-size:16px;';
+      b.textContent = '📒';
+      b.onclick = () => window.openDueModal();
+      mobLogout.insertAdjacentElement('beforebegin', b);
+    }
+    const csvBtn = document.querySelector('#view-reports button[onclick="exportSalesCSV()"]');
+    if (csvBtn && !document.getElementById('due-report-btn')) {
+      const b = document.createElement('button');
+      b.id = 'due-report-btn';
+      b.type = 'button';
+      b.className = 'px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95';
+      b.innerHTML = '<span>📒</span> বাকি খাতা';
+      b.onclick = () => window.openDueModal();
+      csvBtn.insertAdjacentElement('afterend', b);
+    }
+  }
+
+  addDueRadio();
+  addReportFilterOption();
+  addButtons();
+  try { window.renderSalesReportView(); window.updateDashboard(); } catch (e) {}
+})();
+</script>
 </body>
 </html>
