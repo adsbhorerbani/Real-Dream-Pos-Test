@@ -6108,5 +6108,580 @@ function addUserButtons() {
 }
 addUserButtons();
 </script>
+<!-- ===== SHOP LOGO UPLOAD PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, users-permission patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<script id="logo-patch-js">
+(function () {
+  'use strict';
+
+  let pendingLogo; // undefined = অপরিবর্তিত, '' = মুছে ফেলা, "data:..." = নতুন লোগো
+
+  /* ---------- ছবি ছোট করে (সর্বোচ্চ ৩০০px) ডাটা-URL বানানো ---------- */
+  function fileToLogo(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const draw = (max, flatten) => {
+            const sc = Math.min(1, max / Math.max(img.naturalWidth || max, img.naturalHeight || max));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round((img.naturalWidth || max) * sc));
+            c.height = Math.max(1, Math.round((img.naturalHeight || max) * sc));
+            const ctx = c.getContext('2d');
+            if (flatten) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); }
+            ctx.drawImage(img, 0, 0, c.width, c.height);
+            return c;
+          };
+          let out = draw(300, false).toDataURL('image/png');
+          if (out.length > 200000) out = draw(240, true).toDataURL('image/jpeg', 0.85);
+          resolve(out);
+        } catch (e) { reject(e); }
+        finally { URL.revokeObjectURL(url); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+      img.src = url;
+    });
+  }
+
+  /* ---------- লোগো দেখানো: লগইন, সাইডবার, মোবাইল ---------- */
+  function applyLogo() {
+    const logo = (shopConfig && shopConfig.logo) || '';
+    const boxes = [
+      [document.querySelector('#login-screen .w-14.h-14'), '72px'],
+      [document.querySelector('aside .w-10.h-10'), ''],
+      [document.querySelector('header .w-9.h-9'), '']
+    ];
+    boxes.forEach(([el, big]) => {
+      if (!el) return;
+      if (el.dataset.orig === undefined) el.dataset.orig = el.innerHTML;
+      if (logo) {
+        el.innerHTML = '<img src="' + logo + '" alt="logo" style="width:100%;height:100%;object-fit:contain;">';
+        el.style.background = '#fff';
+        el.style.overflow = 'hidden';
+        el.style.padding = '2px';
+        if (big) { el.style.width = big; el.style.height = big; }
+      } else {
+        el.innerHTML = el.dataset.orig;
+        el.style.background = ''; el.style.overflow = ''; el.style.padding = '';
+        if (big) { el.style.width = ''; el.style.height = ''; }
+      }
+    });
+    if (!logo && window.lucide) lucide.createIcons();
+  }
+
+  const origApply = window.applyShopConfigUI;
+  window.applyShopConfigUI = function () {
+    origApply.apply(this, arguments);
+    applyLogo();
+  };
+
+  /* ---------- সেটিংস মোডালে লোগো অংশ ---------- */
+  function renderPreview() {
+    const box = document.getElementById('logo-preview');
+    if (!box) return;
+    const cur = pendingLogo !== undefined ? pendingLogo : ((shopConfig && shopConfig.logo) || '');
+    box.innerHTML = cur
+      ? '<img src="' + cur + '" alt="logo" style="width:100%;height:100%;object-fit:contain;">'
+      : 'লোগো নেই';
+  }
+
+  function injectSettingsUI() {
+    const body = document.querySelector('#settings-modal .mt-4.space-y-3');
+    if (!body || document.getElementById('logo-preview')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50';
+    wrap.innerHTML =
+      '<div id="logo-preview" class="w-16 h-16 shrink-0 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden text-slate-300 text-[10px] text-center">লোগো নেই</div>' +
+      '<div class="space-y-1.5 min-w-0">' +
+        '<div class="font-semibold text-slate-700">দোকানের লোগো</div>' +
+        '<div class="flex flex-wrap gap-1.5">' +
+          '<button type="button" id="logo-pick-btn" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold">লোগো আপলোড</button>' +
+          '<button type="button" id="logo-remove-btn" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold">মুছুন</button>' +
+        '</div>' +
+        '<p class="text-[10px] text-slate-500">PNG/JPG। বাছাইয়ের পর নিচে "আপডেট করুন" চাপলে সেভ হবে।</p>' +
+      '</div>' +
+      '<input type="file" id="logo-file" accept="image/*" style="display:none">';
+    body.insertBefore(wrap, body.firstChild);
+
+    const file = wrap.querySelector('#logo-file');
+    wrap.querySelector('#logo-pick-btn').onclick = () => file.click();
+    wrap.querySelector('#logo-remove-btn').onclick = () => { pendingLogo = ''; renderPreview(); };
+    file.addEventListener('change', async () => {
+      const f = file.files && file.files[0];
+      file.value = '';
+      if (!f) return;
+      if (!/^image\//.test(f.type)) { showToast('শুধু ছবি ফাইল দিন (PNG/JPG)।', 'warning'); return; }
+      if (f.size > 8 * 1024 * 1024) { showToast('ছবিটি অনেক বড় (৮MB এর বেশি)।', 'warning'); return; }
+      try {
+        pendingLogo = await fileToLogo(f);
+        renderPreview();
+        showToast('লোগো বাছাই হয়েছে — "আপডেট করুন" চাপুন।', 'info');
+      } catch (e) {
+        showToast('ছবিটি পড়া যায়নি, অন্য ছবি দিন।', 'error');
+      }
+    });
+  }
+
+  const origOpen = window.openSettingsModal;
+  window.openSettingsModal = function () {
+    injectSettingsUI();
+    pendingLogo = undefined;
+    const r = origOpen.apply(this, arguments);
+    renderPreview();
+    return r;
+  };
+
+  const origSave = window.saveShopSettings;
+  window.saveShopSettings = function () {
+    if (pendingLogo !== undefined) { shopConfig.logo = pendingLogo; pendingLogo = undefined; }
+    return origSave.apply(this, arguments); // লোকাল + ক্লাউডে সেভ করে ও UI আপডেট করে
+  };
+
+  /* ---------- মেমোতে লোগো ---------- */
+  const origReceipt = window.renderReceiptTemplate;
+  window.renderReceiptTemplate = function () {
+    origReceipt.apply(this, arguments);
+    const logo = shopConfig && shopConfig.logo;
+    const area = document.getElementById('print-area');
+    if (!logo || !area) return;
+    const title = area.querySelector('h1, h2');
+    if (!title) return;
+    const fmt = activePrinterFormat;
+    const thermal = (fmt === '80mm' || fmt === '58mm');
+    const img = document.createElement('img');
+    img.src = logo;
+    img.alt = 'logo';
+    img.style.cssText = thermal
+      ? 'display:block;margin:0 auto 4px;object-fit:contain;filter:grayscale(1) contrast(1.3);max-width:' + (fmt === '58mm' ? '30mm' : '44mm') + ';max-height:' + (fmt === '58mm' ? '12mm' : '16mm') + ';'
+      : 'display:block;margin:0 0 6px;object-fit:contain;max-width:44mm;max-height:20mm;';
+    title.parentNode.insertBefore(img, title);
+  };
+
+  /* ---------- PDF / রিপোর্ট প্রিন্টে লোগো ---------- */
+  const origGen = window.generateReportHTML;
+  window.generateReportHTML = function () {
+    const html = origGen.apply(this, arguments);
+    const logo = shopConfig && shopConfig.logo;
+    if (!logo) return html;
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const h1 = doc.querySelector('h1');
+      if (h1) {
+        const img = doc.createElement('img');
+        img.src = logo;
+        img.alt = 'logo';
+        img.setAttribute('style', 'display:block;margin:0 auto 6px;height:60px;max-width:180px;object-fit:contain;');
+        h1.parentNode.insertBefore(img, h1);
+      }
+      return doc.body.innerHTML;
+    } catch (e) { return html; }
+  };
+
+  applyLogo();
+})();
+</script>
+<!-- ===== UI POLISH PATCH (সাইডবার + পুরো ওয়েবসাইটের সাজসজ্জা) =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, logo-upload patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<style id="ui-polish-css">
+@media screen {
+  /* ---------- সাধারণ ---------- */
+  html, body { background: #f4f6f9; }
+  main { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d3d9e2; }
+  [id$="-modal"] { backdrop-filter: blur(3px); }
+
+  /* সংখ্যা: বাংলা অঙ্ক সুন্দর দেখাতে (মেমো/প্রিন্টে প্রভাব নেই) */
+  main .font-mono { font-family: 'Hind Siliguri', 'Inter', sans-serif !important; font-variant-numeric: tabular-nums; }
+
+  /* কার্ড */
+  main .rounded-2xl.border { border-color: #edf0f4; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+  #view-dashboard .grid > div { border-radius: 1.1rem; transition: transform .2s, box-shadow .2s; }
+  #view-dashboard .grid > div:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(16,24,40,.08); }
+
+  /* ইনপুট ফোকাস */
+  main input:focus, main select:focus, main textarea:focus,
+  [id$="-modal"] input:focus, [id$="-modal"] select:focus, [id$="-modal"] textarea:focus {
+    border-color: #16a34a !important; box-shadow: 0 0 0 3px rgba(22,163,74,.12) !important; outline: none;
+  }
+
+  /* টেবিল */
+  main thead th { font-weight: 600; color: #64748b; }
+  main tbody tr { transition: background .15s; }
+
+  /* POS */
+  #pos-category-pills .cat-pill { border-radius: 9999px; padding-left: .9rem; padding-right: .9rem; }
+  #pos-grid > div { border-radius: 1rem; border-color: #edf0f4; transition: all .18s; }
+  #pos-grid > div:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(16,24,40,.08); }
+
+  /* ---------- সাইডবার ---------- */
+  aside { background: #fff; border-right: 1px solid #eef1f5; box-shadow: none; }
+  aside > div:first-child { border-bottom: 0; padding: 1.25rem 1rem .75rem; }
+  aside #topbar-store-name { font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; }
+  aside #topbar-store-tagline { font-size: .7rem; color: #94a3b8; }
+  aside #active-printer-badge { background: #f1f5f9; color: #64748b; font-weight: 600; }
+
+  aside nav { padding: .25rem .75rem; gap: 2px; }
+  aside .nav-tab {
+    position: relative; padding: .6rem .75rem; border-radius: .7rem; font-weight: 500;
+    font-size: .875rem; color: #475569; gap: .7rem; box-shadow: none;
+  }
+  aside .nav-tab:hover { background: #f6f8fa; color: #0f172a; }
+  aside .nav-tab svg { color: #94a3b8 !important; }
+  aside .nav-tab.bg-brand-50 { background: #eaf7ef; color: #166534; font-weight: 600; box-shadow: none; }
+  aside .nav-tab.bg-brand-50 svg { color: #16a34a !important; }
+  aside .nav-tab.bg-brand-50::before {
+    content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 18px;
+    transform: translateY(-50%); border-radius: 0 3px 3px 0; background: #16a34a;
+  }
+
+  .side-more { padding: .25rem .75rem 0; }
+  .side-label {
+    font-size: .65rem; font-weight: 700; letter-spacing: .08em; color: #a3aebd;
+    padding: .9rem .75rem .35rem; text-transform: uppercase;
+  }
+  .side-item {
+    width: 100%; display: flex; align-items: center; gap: .7rem; padding: .55rem .75rem;
+    border-radius: .7rem; font-size: .85rem; font-weight: 500; color: #475569;
+    background: transparent; border: 0; text-align: left; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .side-item:hover { background: #f6f8fa; color: #0f172a; }
+  .side-item svg { width: 1rem; height: 1rem; color: #94a3b8; flex-shrink: 0; }
+
+  .side-bottom {
+    margin-top: auto; padding: .75rem; border-top: 1px solid #eef1f5;
+    display: flex; flex-direction: column; gap: .5rem;
+  }
+  .side-status { display: flex; align-items: center; gap: .45rem; font-size: .7rem; color: #64748b; padding: 0 .25rem; }
+  .side-status .dot { width: .4rem; height: .4rem; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
+  .side-primary, .side-ghost {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: .5rem;
+    padding: .65rem; border-radius: .8rem; font-size: .85rem; font-weight: 600; cursor: pointer; transition: all .15s;
+  }
+  .side-primary { background: #16a34a; color: #fff; border: 0; box-shadow: 0 4px 12px rgba(22,163,74,.25); }
+  .side-primary:hover { background: #15803d; }
+  .side-primary:active, .side-ghost:active { transform: scale(.98); }
+  .side-ghost { background: #fff; color: #334155; border: 1px solid #e5e9f0; }
+  .side-ghost:hover { background: #f8fafc; }
+  .side-ghost svg, .side-primary svg { width: 1rem; height: 1rem; }
+
+  .side-user { display: flex; align-items: center; gap: .6rem; padding: .5rem; border-radius: .85rem; background: #f7f9fb; }
+  .side-avatar {
+    width: 2rem; height: 2rem; border-radius: 9999px; background: #dcfce7; color: #166534;
+    font-weight: 700; font-size: .85rem; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; text-transform: uppercase;
+  }
+  .side-user #sidebar-user-email { display: block; font-size: .72rem; font-weight: 600; color: #475569; }
+  .side-logout {
+    width: 2rem; height: 2rem; border-radius: .6rem; display: flex; align-items: center; justify-content: center;
+    color: #e11d48; background: transparent; border: 0; cursor: pointer; flex-shrink: 0; transition: background .15s;
+  }
+  .side-logout:hover { background: #ffe4e6; }
+  .side-logout svg { width: 1rem; height: 1rem; }
+}
+</style>
+
+<script type="module" id="ui-polish-js">
+(function () {
+  const q = (s) => document.querySelector(s);
+  const aside = q('aside');
+  if (!aside || q('.side-more')) return;
+
+  const nav = aside.querySelector('nav');
+  const bottom = aside.querySelector('.mt-auto');
+  const camBtn = q('aside button[onclick="openCameraScannerModal()"]');
+  const setBtn = q('aside button[onclick="openSettingsModal()"]');
+  const addBtn = q('aside button[onclick="openAddProductModal()"]');
+  const logoutBtn = q('aside button[onclick="handleLogout()"]');
+  const dueBtn = q('#due-side-btn');
+  const retBtn = q('#ret-side-btn');
+  const usersBtn = q('#users-side-btn');
+  const pill = q('#hw-scanner-pill');
+  const email = q('#sidebar-user-email');
+  if (!nav || !bottom || !addBtn || !logoutBtn || !email) return;
+
+  const icon = (name, label) => '<i data-lucide="' + name + '"></i><span>' + label + '</span>';
+
+  /* ---- "দ্রুত কাজ" তালিকা ---- */
+  const more = document.createElement('div');
+  more.className = 'side-more';
+  more.innerHTML = '<div class="side-label">দ্রুত কাজ</div>';
+  [
+    [dueBtn, 'book-open', 'বাকি খাতা'],
+    [retBtn, 'undo-2', 'রিটার্ন / ফেরত'],
+    [usersBtn, 'users', 'ইউজার ও পারমিশন'],
+    [setBtn, 'settings', 'সেটিংস']
+  ].forEach(([el, ic, label]) => {
+    if (!el) return;
+    el.className = 'side-item' + (el.classList.contains('users-btn') ? ' users-btn' : '');
+    el.innerHTML = icon(ic, label);
+    more.appendChild(el);
+  });
+  nav.insertAdjacentElement('afterend', more);
+
+  /* ---- নিচের অংশ ---- */
+  if (pill) {
+    pill.className = 'side-status';
+    pill.innerHTML = '<span class="dot"></span><span>স্ক্যানার রেডি</span>';
+  }
+  addBtn.className = 'side-primary';
+  addBtn.innerHTML = icon('plus', 'নতুন পোশাক');
+  if (camBtn) {
+    camBtn.className = 'side-ghost';
+    camBtn.innerHTML = icon('scan-barcode', 'ক্যামেরা স্ক্যান');
+  }
+
+  const card = document.createElement('div');
+  card.className = 'side-user';
+  const avatar = document.createElement('span');
+  avatar.className = 'side-avatar';
+  const mid = document.createElement('div');
+  mid.className = 'min-w-0 flex-1';
+  email.className = 'truncate';
+  mid.appendChild(email);
+  logoutBtn.className = 'side-logout';
+  logoutBtn.title = 'লগআউট';
+  logoutBtn.innerHTML = '<i data-lucide="log-out"></i>';
+  card.append(avatar, mid, logoutBtn);
+
+  const setInit = () => { avatar.textContent = (email.textContent.trim()[0] || '•'); };
+  setInit();
+  new MutationObserver(setInit).observe(email, { childList: true, characterData: true, subtree: true });
+
+  bottom.className = 'side-bottom';
+  bottom.innerHTML = '';
+  if (pill) bottom.appendChild(pill);
+  bottom.appendChild(addBtn);
+  if (camBtn) bottom.appendChild(camBtn);
+  bottom.appendChild(card);
+
+  if (window.lucide) lucide.createIcons();
+})();
+</script>
+<!-- ===== REPORT PROFIT + COUNT + CLEAN PRINT DESIGN PATCH =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে (ui-polish patch এর পরে), </body> এর ঠিক আগে পেস্ট করুন। আর কিছু বদলাতে হবে না। -->
+<script id="report-profit-print-patch-js">
+(function () {
+  'use strict';
+
+  const num = (v) => Number(v) || 0;
+  const fmt = (n) => Math.round(num(n)).toLocaleString('bn-BD');
+  const bn  = (n) => Number(n).toLocaleString('bn-BD');
+
+  // লাভ দেখানো শুধু তাদের, যাদের "ড্যাশবোর্ড (আয়/লাভ)" পারমিশন আছে (মালিকের সবসময় আছে)
+  const showProfit = () => (typeof window.can !== 'function') || window.can('dashboard');
+
+  /* ---------- হিসাব ---------- */
+  function itemKey(i) { return i.cartItemId || (i.productId + '_' + i.size); }
+  function retQty(s, key) {
+    let q = 0;
+    (s.returns || []).forEach(r => (r.items || []).forEach(i => { if (i.key === key) q += num(i.qty); }));
+    return q;
+  }
+
+  // একটি মেমোর লাভ ও পিস (রিটার্ন বাদ দিয়ে)
+  function lineStats(e) {
+    const s = e._orig || e;
+    let profit = 0, pieces = 0;
+    (s.items || []).forEach(i => {
+      const q = Math.max(0, num(i.qty) - retQty(s, itemKey(i)));
+      pieces += q;
+      profit += (num(i.price) - num(i.buyPrice)) * q;
+    });
+    profit -= num(e.discount);
+    return { profit, pieces };
+  }
+
+  function totals(list) {
+    let gross = 0, tax = 0, grand = 0, cash = 0, digital = 0, due = 0, profit = 0, pieces = 0, disc = 0;
+    list.forEach(s => {
+      const g = num(s.grandTotal), t = num(s.tax), d = num(s.discount);
+      const sub = (s.subtotal != null && !isNaN(Number(s.subtotal))) ? Number(s.subtotal) : (g + d - t);
+      const paid = (s.paidAmount != null && !isNaN(Number(s.paidAmount))) ? Number(s.paidAmount) : g;
+      const col = Math.min(Math.max(paid, 0), g);
+      gross += sub; tax += t; grand += g; disc += d;
+      due += Math.max(0, g - col);
+      const pm = String(s.paymentMethod || '').toLowerCase();
+      if (pm.includes('cash') || pm.includes('ক্যাশ')) cash += col; else digital += col;
+      const st = lineStats(s);
+      profit += st.profit; pieces += st.pieces;
+    });
+    const net = grand - tax;
+    return { gross, disc: Math.max(0, gross - net), net, tax, grand, cash, digital, due, profit, pieces, count: list.length };
+  }
+
+  function reportRows(list, dateText) {
+    const t = totals(list);
+    const rows = [
+      { l: 'তারিখ', v: dateText, k: 'text' },
+      { l: 'মোট বিক্রি (Gross Sales)', v: fmt(t.gross) + ' টাকা' },
+      { l: 'ডিসকাউন্ট (Discount)', v: fmt(t.disc) + ' টাকা', k: 'neg' },
+      { l: 'প্রকৃত বিক্রি (Net Sales)', v: fmt(t.net) + ' টাকা', k: 'net' }
+    ];
+    if (showProfit()) {
+      const p = Math.round(t.profit);
+      rows.push({ l: 'নিট লাভ (Profit)', v: (p < 0 ? '− ' : '') + fmt(Math.abs(p)) + ' টাকা', k: p < 0 ? 'loss' : 'profit' });
+    }
+    if (t.tax > 0) {
+      rows.push({ l: 'ভ্যাট/ট্যাক্স (VAT)', v: fmt(t.tax) + ' টাকা' });
+      rows.push({ l: 'সর্বমোট বিল (Net + VAT)', v: fmt(t.grand) + ' টাকা', k: 'bold' });
+    }
+    rows.push({ l: 'ক্যাশ কালেকশন (Cash)', v: fmt(t.cash) + ' টাকা' });
+    rows.push({ l: 'বিকাশ/নগদ/কার্ড (Digital)', v: fmt(t.digital) + ' টাকা' });
+    if (t.due > 0) rows.push({ l: 'বাকি (Due)', v: fmt(t.due) + ' টাকা', k: 'neg' });
+    rows.push({ l: 'মোট ইনভয়েস সংখ্যা (Invoices)', v: bn(t.count) + ' টি' });
+    rows.push({ l: 'মোট পণ্য বিক্রি (Pieces)', v: bn(t.pieces) + ' পিস' });
+    return rows;
+  }
+
+  /* ---------- স্ক্রিনের টেবিল ---------- */
+  function screenRowsHTML(rows) {
+    return rows.map(r => {
+      const bg = r.k === 'net' ? 'bg-emerald-50/50' : (r.k === 'profit' ? 'bg-amber-50/60' : (r.k === 'loss' ? 'bg-rose-50/60' : ''));
+      const lc = (r.k === 'net' || r.k === 'profit') ? 'font-extrabold text-slate-900' : 'font-bold text-slate-900';
+      const vc = r.k === 'net' ? 'font-extrabold text-emerald-800 text-base'
+               : r.k === 'profit' ? 'font-extrabold text-amber-700 text-base'
+               : (r.k === 'neg' || r.k === 'loss') ? 'font-bold text-rose-600'
+               : r.k === 'text' ? 'font-semibold text-slate-800'
+               : 'font-bold text-slate-900';
+      return `<tr class="hover:bg-slate-50 transition ${bg}"><td class="py-3 px-6 ${lc}">${r.l}</td><td class="py-3 px-6 ${vc}">${r.v}</td></tr>`;
+    }).join('');
+  }
+
+  const prevRender = window.renderSalesReportView;
+  window.renderSalesReportView = function () {
+    prevRender.apply(this, arguments);
+    try {
+      const tb = document.getElementById('custom-two-col-tbody');
+      if (tb) {
+        const { filtered, displayDateText } = getFilteredSalesReportData();
+        tb.innerHTML = screenRowsHTML(reportRows(filtered, displayDateText));
+      }
+    } catch (e) { /* ignore */ }
+  };
+
+  /* ---------- প্রিন্ট / PDF রিপোর্টের নতুন ডিজাইন ---------- */
+  const C = {
+    ink: '#0f172a', mute: '#64748b', soft: '#94a3b8', line: '#e2e8f0',
+    green: '#16a34a', greenDk: '#14532d', greenBg: '#f0fdf4', greenLn: '#bbf7d0',
+    amberBg: '#fffbeb', amberLn: '#fde68a', rose: '#dc2626', roseBg: '#fff1f2', zebra: '#f8fafc'
+  };
+
+  function summaryHTML(rows) {
+    return rows.map((r, i) => {
+      let bg = i % 2 ? C.zebra : '#fff', lc = '#334155', lw = 600, vc = C.ink, vw = 700, fs = '13px', bd = C.line;
+      if (r.k === 'net')    { bg = C.greenBg; bd = C.greenLn; lc = C.greenDk; lw = 800; vc = '#15803d'; vw = 800; fs = '15px'; }
+      if (r.k === 'profit') { bg = C.amberBg; bd = C.amberLn; lc = '#78350f'; lw = 800; vc = '#b45309'; vw = 800; fs = '15px'; }
+      if (r.k === 'loss')   { bg = C.roseBg;  bd = '#fecdd3';  lc = '#9f1239'; lw = 800; vc = C.rose;  vw = 800; fs = '15px'; }
+      if (r.k === 'neg')    { vc = C.rose; }
+      if (r.k === 'text')   { vw = 600; }
+      return `<tr style="background:${bg};page-break-inside:avoid;">
+        <td style="padding:10px 18px;border-bottom:1px solid ${bd};width:48%;font-weight:${lw};color:${lc};font-size:13px;">${r.l}</td>
+        <td style="padding:10px 18px;border-bottom:1px solid ${bd};font-weight:${vw};color:${vc};font-size:${fs};">${r.v}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  window.generateReportHTML = function (filtered, periodLabel, displayDateText) {
+    const rows = reportRows(filtered, displayDateText);
+    const t = totals(filtered);
+    const sp = showProfit();
+    const logo = (typeof shopConfig !== 'undefined' && shopConfig.logo) ? shopConfig.logo : '';
+    const generated = new Date().toLocaleString('bn-BD', { dateStyle: 'long', timeStyle: 'short' });
+
+    const th = (txt, al) => `<th style="padding:8px 8px;text-align:${al || 'left'};font-weight:700;color:#334155;border-bottom:2px solid ${C.greenLn};">${txt}</th>`;
+    const td = (txt, al, extra) => `<td style="padding:7px 8px;text-align:${al || 'left'};border-bottom:1px solid ${C.line};${extra || ''}">${txt}</td>`;
+
+    const list = filtered.map((s, idx) => {
+      const st = lineStats(s);
+      const p = Math.round(st.profit);
+      return `<tr style="background:${idx % 2 ? C.zebra : '#fff'};page-break-inside:avoid;">
+        ${td(bn(idx + 1), 'center', 'color:' + C.soft + ';')}
+        ${td(esc(s.id), 'left', 'font-family:monospace;font-weight:700;white-space:nowrap;')}
+        ${td(esc(s.customerName))}
+        ${td((s.items || []).map(i => `${esc(i.name)} [${esc(i.size)}] ×${i.qty}`).join(', '))}
+        ${td(esc(s.paymentMethod), 'center', 'white-space:nowrap;')}
+        ${td(bn(st.pieces), 'center', 'font-weight:600;')}
+        ${td(num(s.discount) > 0 ? '৳' + fmt(s.discount) : '–', 'right', 'color:' + (num(s.discount) > 0 ? C.rose : C.soft) + ';')}
+        ${td('৳ ' + fmt(s.grandTotal), 'right', 'font-weight:700;')}
+        ${sp ? td((p < 0 ? '−' : '') + '৳' + fmt(Math.abs(p)), 'right', 'font-weight:700;color:' + (p < 0 ? C.rose : '#b45309') + ';') : ''}
+      </tr>`;
+    }).join('');
+
+    const foot = `<tr style="background:${C.greenBg};page-break-inside:avoid;">
+      <td colspan="5" style="padding:9px 8px;text-align:right;font-weight:800;color:${C.greenDk};border-top:2px solid ${C.greenLn};">সর্বমোট</td>
+      <td style="padding:9px 8px;text-align:center;font-weight:800;border-top:2px solid ${C.greenLn};">${bn(t.pieces)}</td>
+      <td style="padding:9px 8px;text-align:right;font-weight:800;color:${C.rose};border-top:2px solid ${C.greenLn};">৳${fmt(t.disc)}</td>
+      <td style="padding:9px 8px;text-align:right;font-weight:800;border-top:2px solid ${C.greenLn};">৳ ${fmt(t.grand)}</td>
+      ${sp ? `<td style="padding:9px 8px;text-align:right;font-weight:800;color:#b45309;border-top:2px solid ${C.greenLn};">${t.profit < 0 ? '−' : ''}৳${fmt(Math.abs(t.profit))}</td>` : ''}
+    </tr>`;
+
+    return `
+      <div style="font-family:'Hind Siliguri','Inter',system-ui,sans-serif;background:#fff;color:${C.ink};padding:18px 24px 14px;box-sizing:border-box;">
+
+        <!-- হেডার -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:3px solid ${C.green};">
+          <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+            ${logo ? `<img src="${logo}" alt="logo" style="height:54px;max-width:110px;object-fit:contain;">` : ''}
+            <div style="min-width:0;">
+              <div style="font-size:22px;font-weight:700;color:${C.greenDk};line-height:1.25;">${esc(shopConfig.name)}</div>
+              ${shopConfig.tagline ? `<div style="font-size:11px;color:${C.mute};">${esc(shopConfig.tagline)}</div>` : ''}
+              <div style="font-size:10px;color:${C.soft};margin-top:2px;">${esc(shopConfig.address)} | ${esc(shopConfig.phone)}</div>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="display:inline-block;padding:4px 14px;border-radius:999px;background:#dcfce7;border:1px solid #86efac;color:${C.greenDk};font-size:12px;font-weight:700;">বিক্রয় রিপোর্ট</div>
+            <div style="font-size:12px;font-weight:700;margin-top:6px;">${displayDateText}</div>
+            <div style="font-size:9px;color:${C.soft};margin-top:1px;">তৈরির সময়: ${generated}</div>
+          </div>
+        </div>
+
+        <!-- সারাংশ টেবিল -->
+        <div style="margin-top:18px;border:1px solid ${C.line};border-radius:12px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:${C.greenBg};">
+                <th style="padding:10px 18px;text-align:left;font-size:12px;font-weight:700;color:${C.greenDk};border-bottom:2px solid ${C.greenLn};width:48%;">খাতের নাম</th>
+                <th style="padding:10px 18px;text-align:left;font-size:12px;font-weight:700;color:${C.greenDk};border-bottom:2px solid ${C.greenLn};">বিবরণ / টাকার পরিমাণ</th>
+              </tr>
+            </thead>
+            <tbody>${summaryHTML(rows)}</tbody>
+          </table>
+        </div>
+
+        <!-- মেমো তালিকা -->
+        <div style="margin-top:22px;margin-bottom:8px;font-size:13px;font-weight:700;color:#334155;">
+          মেমোভিত্তিক বিক্রয় তালিকা <span style="color:${C.soft};font-weight:600;">(${bn(filtered.length)} টি)</span>
+        </div>
+        <div style="border:1px solid ${C.line};border-radius:10px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <thead>
+              <tr style="background:${C.greenBg};">
+                ${th('ক্র.', 'center')}${th('মেমো নং')}${th('গ্রাহক')}${th('পোশাক ও সাইজ')}${th('মাধ্যম', 'center')}${th('পিস', 'center')}${th('ছাড়', 'right')}${th('মোট টাকা', 'right')}${sp ? th('লাভ', 'right') : ''}
+              </tr>
+            </thead>
+            <tbody>${list}${foot}</tbody>
+          </table>
+        </div>
+
+        <!-- ফুটার -->
+        <div style="margin-top:26px;display:flex;justify-content:space-between;align-items:flex-end;">
+          <div style="font-size:9px;color:${C.soft};line-height:1.6;">
+            সফটওয়্যার জেনারেটেড রিপোর্ট • ${esc(shopConfig.name)} POS ও স্টক সিস্টেম<br>
+            (Development By Boost Lab)
+          </div>
+          <div style="text-align:center;">
+            <div style="border-top:1px solid #475569;width:140px;margin-bottom:4px;"></div>
+            <span style="font-size:11px;font-weight:700;color:#334155;">কর্তৃপক্ষের স্বাক্ষর</span>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  // এখনই স্ক্রিনের টেবিল নতুন করে আঁকো
+  try { window.renderSalesReportView(); } catch (e) { /* ignore */ }
+})();
+</script>
 </body>
 </html>
