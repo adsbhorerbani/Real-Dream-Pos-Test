@@ -6683,5 +6683,284 @@ addUserButtons();
   try { window.renderSalesReportView(); } catch (e) { /* ignore */ }
 })();
 </script>
+<!-- ===== MOBILE HOME VIEW PATCH (ফোনের হোম স্ক্রিন — অ্যাপের মতো) =====
+     এই পুরো ব্লকটি ফাইলের একদম শেষে, report-profit-print patch এর পরে, </body> এর ঠিক আগে পেস্ট করুন।
+     শুধু ফোনে (৭৬৭px বা কম) কাজ করবে। পিসি/ল্যাপটপের ডিজাইন একদম আগের মতোই থাকবে। -->
+<style id="mobile-home-css">
+  /* পিসিতে নতুন অংশ পুরো লুকানো */
+  @media (min-width: 768px) {
+    #view-home, #m-header, #m-nav { display: none !important; }
+  }
+
+  @media (max-width: 767px) {
+    /* পুরনো মোবাইল টপ বার বাদ */
+    body > header { display: none !important; }
+    html, body { background: #f1eff0 !important; }
+
+    /* ---------- হেডার ---------- */
+    #m-header {
+      position: sticky; top: 0; z-index: 30; background: #fff;
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+      box-shadow: 0 1px 0 #ece9ea;
+    }
+    #m-header .mh-avatar {
+      width: 48px; height: 48px; border-radius: 9999px; background: #fdeaea; color: #c0392b;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px;
+      overflow: hidden; flex-shrink: 0;
+    }
+    #m-header .mh-avatar img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+    #m-header .mh-text { min-width: 0; flex: 1; }
+    #m-header #mh-name { font-size: 20px; font-weight: 600; color: #1c1b22; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #m-header #mh-sub { font-size: 14px; font-weight: 500; color: #5a6275; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ---------- হোম ---------- */
+    #view-home { padding: 14px 12px 6.5rem; }
+
+    #m-overview { background: #342b7a; color: #fff; border-radius: 14px; padding: 16px 18px 18px; }
+    #m-overview .mo-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    #m-overview .mo-title { font-size: 22px; font-weight: 600; }
+    #m-overview .mo-all { background: transparent; border: 0; color: #fff; font-size: 18px; font-weight: 400; padding: 0; }
+    #m-overview .mo-grid { display: grid; grid-template-columns: 1fr 1fr; row-gap: 14px; column-gap: 10px; }
+    #m-overview .mo-grid > div { min-width: 0; }
+    #m-overview .mo-grid > div.r { text-align: right; }
+    #m-overview .mo-grid span { display: block; font-size: 16px; opacity: .92; }
+    #m-overview .mo-grid b { display: block; font-size: 22px; font-weight: 600; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    #m-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+    #m-tiles .tile {
+      display: flex; align-items: center; gap: 12px; padding: 14px 12px; min-width: 0;
+      background: #fff; border: 0; border-radius: 12px; text-align: left;
+      box-shadow: 0 2px 10px rgba(30, 20, 60, .06); transition: transform .12s;
+    }
+    #m-tiles .tile:active { transform: scale(.97); }
+    #m-tiles .tile .ti { width: 46px; height: 46px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    #m-tiles .tile .ti svg { width: 22px; height: 22px; stroke-width: 2.2; }
+    #m-tiles .tile .tl { font-size: 17px; font-weight: 500; color: #4a4a57; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #m-tiles .tile.hide { display: none; }
+
+    /* ---------- নিচের নেভিগেশন ---------- */
+    #m-nav {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: #fff;
+      display: flex; justify-content: space-around; align-items: stretch;
+      padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -2px 14px rgba(30, 20, 60, .08);
+    }
+    #m-nav .mn { flex: 1; border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; gap: 2px; color: #7c7c8a; font-size: 12px; font-weight: 500; padding: 2px 0; min-width: 0; white-space: nowrap; }
+    #m-nav .mn .mi { width: 46px; height: 30px; border-radius: 12px; display: flex; align-items: center; justify-content: center; transition: background .15s; }
+    #m-nav .mn .mi svg { width: 24px; height: 24px; }
+    #m-nav .mn.on { color: #342b7a; font-weight: 700; }
+    #m-nav .mn.on .mi { background: #e8e5fa; color: #342b7a; }
+
+    /* অন্য পেজে নিচের নেভের জন্য জায়গা */
+    #view-tags, #view-inventory, #view-reports, #view-dashboard { padding-bottom: 6rem !important; }
+    #view-pos { padding-bottom: 6.5rem !important; }
+
+    /* ভাসমান কার্ট বাটন নেভের উপরে */
+    #mobile-cart-fab { bottom: 78px !important; }
+    #toast-container { bottom: 6rem !important; }
+  }
+</style>
+
+<script id="mobile-home-js">
+(function () {
+  'use strict';
+
+  const mq = window.matchMedia('(max-width: 767px)');
+  const isMobile = () => mq.matches;
+  const $ = (id) => document.getElementById(id);
+  const VIEWS = ['pos', 'tags', 'inventory', 'reports', 'dashboard'];
+
+  /* ---------- অনুমতি অনুযায়ী লুকানো (users-permission patch এর deny-* ক্লাস) ---------- */
+  const st = document.createElement('style');
+  st.textContent = ['pos', 'discount', 'inventory', 'inventory_edit', 'tags', 'reports', 'dashboard', 'returns', 'due', 'settings']
+    .map(k => 'body.deny-' + k + ' [data-perm="' + k + '"]{display:none!important}').join('\n');
+  document.head.appendChild(st);
+
+  /* ---------- কাজের তালিকা ---------- */
+  const go = (t) => window.switchTab(t);
+  const run = (name) => () => { if (typeof window[name] === 'function') window[name](); };
+  const toList = () => {
+    go('reports');
+    setTimeout(() => {
+      const t = $('sales-tbody'); const box = t && t.closest('.rounded-2xl');
+      if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  };
+
+  // [আইকন, নাম, ব্যাকগ্রাউন্ড, আইকনের রঙ, অনুমতি, কাজ] — শুধু ওয়েবসাইটে যা আছে
+  const TILES = [
+    ['shopping-cart', 'পিওএস (POS)',    '#e6ebff', '#4f6bed', 'pos',            () => go('pos')],
+    ['package',       'স্টক',            '#dff3f1', '#14b8a6', 'inventory',      () => go('inventory')],
+    ['plus-circle',   'নতুন পোশাক',      '#dff4f1', '#0d9488', 'inventory_edit', run('openAddProductModal')],
+    ['tag',           'প্রাইস ট্যাগ',    '#fff3d6', '#d97706', 'tags',           () => go('tags')],
+    ['file-text',     'সেলস রিপোর্ট',    '#fde2ee', '#e11d48', 'reports',        () => go('reports')],
+    ['list',          'মেমো তালিকা',     '#dcfce7', '#16a34a', 'reports',        toList],
+    ['bar-chart-3',   'ড্যাশবোর্ড',      '#e7e3fb', '#6d5ad6', 'dashboard',      () => go('dashboard')],
+    ['book-open',     'বাকি খাতা',       '#ffecd6', '#f59e0b', 'due',            run('openDueModal')],
+    ['undo-2',        'রিটার্ন / ফেরত',  '#ffe4e6', '#e11d48', 'returns',        run('openReturnModal')],
+    ['scan-barcode',  'ক্যামেরা স্ক্যান', '#ffeee2', '#f97316', 'pos',            run('openCameraScannerModal')],
+    ['user-cog',      'ইউজার',           '#e6e9ff', '#4f46e5', '',               run('openUsersModal'), 'owner'],
+    ['settings',      'সেটিংস',          '#eceff3', '#475569', 'settings',       run('openSettingsModal')],
+    ['log-out',       'লগআউট',           '#fde4e4', '#dc2626', '',               run('handleLogout')]
+  ];
+
+  /* ---------- HTML বসানো ---------- */
+  const hdr = document.createElement('div');
+  hdr.id = 'm-header';
+  hdr.className = 'no-print';
+  hdr.innerHTML =
+    '<div class="mh-avatar" id="mh-avatar">•</div>' +
+    '<div class="mh-text"><div id="mh-name"></div><div id="mh-sub"></div></div>';
+  const wrapper = document.querySelector('body > div.flex-1');
+  document.body.insertBefore(hdr, wrapper);
+
+  const home = document.createElement('div');
+  home.id = 'view-home';
+  home.className = 'hidden';
+  home.innerHTML =
+    '<div id="m-overview">' +
+      '<div class="mo-top"><span class="mo-title">এক নজরে</span><button type="button" class="mo-all" id="mo-all">সব দেখুন</button></div>' +
+      '<div class="mo-grid">' +
+        '<div><span>আজকের বিক্রয়</span><b id="mo-sales">৳ ০</b></div>' +
+        '<div class="r"><span>আজকের লাভ</span><b id="mo-profit">৳ ০</b></div>' +
+        '<div><span>মোট বাকি</span><b id="mo-due">৳ ০</b></div>' +
+        '<div class="r"><span>মজুদ মূল্য</span><b id="mo-stock">৳ ০</b></div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="m-tiles">' +
+      TILES.map((t, i) =>
+        '<button type="button" class="tile" data-i="' + i + '"' + (t[4] ? ' data-perm="' + t[4] + '"' : '') + (t[6] ? ' data-owner="1"' : '') + '>' +
+          '<span class="ti" style="background:' + t[2] + ';color:' + t[3] + '"><i data-lucide="' + t[0] + '"></i></span>' +
+          '<span class="tl">' + t[1] + '</span></button>'
+      ).join('') +
+    '</div>';
+  document.querySelector('main').insertBefore(home, document.querySelector('main').firstChild);
+
+  const nav = document.createElement('nav');
+  nav.id = 'm-nav';
+  nav.className = 'no-print';
+  const ni = (tab, perm, icon, label) =>
+    '<button type="button" class="mn" data-tab="' + tab + '"' + (perm ? ' data-perm="' + perm + '"' : '') + '>' +
+    '<span class="mi"><i data-lucide="' + icon + '"></i></span><span>' + label + '</span></button>';
+  nav.innerHTML =
+    ni('home', '', 'home', 'হোম') +
+    ni('pos', 'pos', 'shopping-cart', 'পিওএস') +
+    ni('inventory', 'inventory', 'package', 'স্টক') +
+    ni('reports', 'reports', 'file-text', 'রিপোর্ট') +
+    ni('settings', 'settings', 'settings', 'সেটিংস');
+  document.body.appendChild(nav);
+
+  /* ---------- ক্লিক হ্যান্ডলার ---------- */
+  home.addEventListener('click', (e) => {
+    const all = e.target.closest('#mo-all');
+    if (all) { go('dashboard'); return; }
+    const b = e.target.closest('.tile');
+    if (b) TILES[Number(b.dataset.i)][5]();
+  });
+  nav.addEventListener('click', (e) => {
+    const b = e.target.closest('.mn');
+    if (!b) return;
+    const t = b.dataset.tab;
+    if (t === 'settings') { if (typeof window.openSettingsModal === 'function') window.openSettingsModal(); }
+    else go(t);
+  });
+
+  /* ---------- হেডার ও ওভারভিউ আপডেট ---------- */
+  function renderHeader() {
+    const cfg = (typeof shopConfig !== 'undefined' && shopConfig) ? shopConfig : {};
+    const email = (typeof currentUserEmail !== 'undefined') ? currentUserEmail : '';
+    const name = cfg.name || '';
+    $('mh-name').textContent = name;
+    $('mh-sub').textContent = email || cfg.tagline || '';
+    const av = $('mh-avatar');
+    if (cfg.logo) {
+      if (!av.querySelector('img') || av.querySelector('img').getAttribute('src') !== cfg.logo) {
+        av.innerHTML = '<img alt="logo">';
+        av.firstChild.src = cfg.logo;
+      }
+    } else {
+      av.textContent = (name.trim()[0] || '•');
+    }
+  }
+
+  function canDash() { return typeof window.can !== 'function' || window.can('dashboard'); }
+
+  function refreshOverview() {
+    const ok = canDash();
+    const pick = (src) => { const el = $(src); return el ? el.innerText : '৳ ০'; };
+    const set = (id, v) => { const el = $(id); if (el && el.textContent !== v) el.textContent = v; };
+    set('mo-sales',  ok ? pick('dash-today-sales')  : '—');
+    set('mo-profit', ok ? pick('dash-today-profit') : '—');
+    set('mo-due',    ok ? pick('dash-total-due')    : '—');
+    set('mo-stock',  ok ? pick('dash-stock-value')  : '—');
+    $('mo-all').style.display = ok ? '' : 'none';
+
+    // Users টাইল শুধু মালিকের জন্য
+    const sb = $('users-side-btn');
+    const owner = !!sb && sb.style.display !== 'none';
+    home.querySelectorAll('.tile[data-owner]').forEach(t => t.classList.toggle('hide', !owner));
+  }
+
+  function setActive(name) {
+    nav.querySelectorAll('.mn').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  }
+
+  function showHome() {
+    VIEWS.forEach(v => { const el = $('view-' + v); if (el) el.classList.add('hidden'); });
+    home.classList.remove('hidden');
+    setActive('home');
+    renderHeader();
+    refreshOverview();
+    const fab = $('mobile-cart-fab'); if (fab) fab.classList.remove('show');
+    const main = document.querySelector('main'); if (main) main.scrollTo({ top: 0 });
+    window.scrollTo(0, 0);
+    if (window.lucide) lucide.createIcons();
+  }
+
+  /* ---------- switchTab র‍্যাপ ---------- */
+  const prevSwitch = window.switchTab;
+  window.switchTab = function (t) {
+    if (t === 'home') { showHome(); return; }
+    // লগইনের পর অনুমতি যাচাই শেষে সিস্টেম অটো POS এ নিয়ে যায় — ফোনে হোমেই থাকুক
+    if (isMobile() && !home.classList.contains('hidden') && /setRole/.test(String(new Error().stack || ''))) return;
+    const r = prevSwitch.apply(this, arguments);
+    const target = $('view-' + t);
+    if (target && !target.classList.contains('hidden')) {
+      home.classList.add('hidden');
+      setActive(t);
+    }
+    return r;
+  };
+
+  /* ---------- অন্যান্য ফাংশন র‍্যাপ ---------- */
+  const prevCfg = window.applyShopConfigUI;
+  window.applyShopConfigUI = function () { const r = prevCfg.apply(this, arguments); renderHeader(); return r; };
+
+  const prevDash = window.updateDashboard;
+  window.updateDashboard = function () { const r = prevDash.apply(this, arguments); refreshOverview(); return r; };
+
+  const prevAuth = window.onAuthChanged;
+  window.onAuthChanged = function (user) {
+    const r = prevAuth ? prevAuth.apply(this, arguments) : undefined;
+    renderHeader();
+    if (!user && isMobile()) showHome(); else refreshOverview();
+    return r;
+  };
+
+  // পিসি থেকে ফোন/ফোন থেকে পিসি হলে ঠিক করে দেয়
+  mq.addEventListener('change', (e) => {
+    if (e.matches) showHome();
+    else if (!home.classList.contains('hidden')) { home.classList.add('hidden'); window.switchTab('pos'); }
+  });
+
+  // অনুমতি/ভূমিকা পরে ঠিক হয়, তাই হালকা করে মাঝে মাঝে মিলিয়ে নেয়
+  setInterval(refreshOverview, 1500);
+
+  renderHeader();
+  if (isMobile()) showHome();
+  if (window.lucide) lucide.createIcons();
+})();
+</script>
+
 </body>
 </html>
